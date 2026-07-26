@@ -186,8 +186,8 @@ function SetupError({
         <p>{message}</p>
         <p className="setup-error__hint">
           Для локального запуска используйте <code>npm run dev</code>. На
-          Netlify задайте переменные <code>ADMIN_PIN</code> и{" "}
-          <code>SESSION_SECRET</code>.
+          Cloudflare привяжите D1 с именем <code>DB</code> и задайте секреты{" "}
+          <code>ADMIN_PIN</code> и <code>SESSION_SECRET</code>.
         </p>
         <button type="button" className="btn" onClick={onRetry}>
           <RefreshIcon />
@@ -286,7 +286,7 @@ export default function App() {
       ) {
         void load(true);
       }
-    }, 5000);
+    }, 10_000);
 
     return () => window.clearInterval(interval);
   }, [load, showLogin, showSettings]);

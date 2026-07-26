@@ -1,5 +1,3 @@
-import type { Config } from "@netlify/functions";
-
 import {
   assertSameOrigin,
   errorResponse,
@@ -8,12 +6,18 @@ import {
   preflightResponse,
   readJson,
   requireObject,
-} from "../lib/http";
-import { clearAdminSessionCookie } from "../lib/security";
+} from "../../server/http";
+import { enforceRateLimit } from "../../server/rate-limit";
+import { clearAdminSessionCookie } from "../../server/security";
+import { initializeStorage } from "../../server/storage";
+import type { ServerEnv } from "../../server/types";
 
 const METHODS = ["POST", "OPTIONS"] as const;
 
-export default async function logout(request: Request): Promise<Response> {
+export const onRequest: PagesFunction<ServerEnv> = async ({
+  request,
+  env,
+}) => {
   try {
     if (request.method === "OPTIONS") {
       return preflightResponse(request, METHODS);
@@ -23,6 +27,9 @@ export default async function logout(request: Request): Promise<Response> {
     if (request.method !== "POST") {
       return methodNotAllowed(request, METHODS);
     }
+
+    await initializeStorage(env);
+    await enforceRateLimit(env, request, "logout", 30);
 
     const body = await readJson(request, 512, true);
     requireObject(body, []);
@@ -36,15 +43,4 @@ export default async function logout(request: Request): Promise<Response> {
   } catch (error) {
     return errorResponse(request, error);
   }
-}
-
-export const config: Config = {
-  path: "/api/logout",
-  method: ["POST", "OPTIONS"],
-  rateLimit: {
-    action: "rate_limit",
-    aggregateBy: ["ip", "domain"],
-    windowLimit: 30,
-    windowSize: 60,
-  },
 };

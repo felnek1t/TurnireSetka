@@ -1,0 +1,3 @@
+# Скопируйте этот файл в .dev.vars только для локального Cloudflare-сервера.
+ADMIN_PIN=6996
+SESSION_SECRET=replace-with-at-least-32-random-characters

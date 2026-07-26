@@ -1,7 +1,7 @@
 import {
   ALL_MATCH_IDS,
   sanitizeTournamentState as sanitizeCoreTournamentState,
-} from "../../src/lib/bracket";
+} from "../src/lib/bracket";
 
 import {
   GROUP_IDS,
@@ -169,9 +169,12 @@ export function validateTournamentState(value: unknown): TournamentState {
   }
 
   const seeds = new Set(players.map((player) => player.seed));
-  if (seeds.size !== 16 || !Array.from({ length: 16 }, (_, index) => index + 1).every(
-    (seed) => seeds.has(seed),
-  )) {
+  if (
+    seeds.size !== 16 ||
+    !Array.from({ length: 16 }, (_, index) => index + 1).every((seed) =>
+      seeds.has(seed),
+    )
+  ) {
     issues.push("players: seed должны быть уникальными числами от 1 до 16");
   }
 

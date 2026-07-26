@@ -1,6 +1,4 @@
-import type { Config, Context } from "@netlify/functions";
-
-import { buildDashboard } from "../lib/dashboard";
+import { buildDashboard } from "../../server/dashboard";
 import {
   assertSameOrigin,
   errorResponse,
@@ -10,17 +8,24 @@ import {
   preflightResponse,
   readJson,
   requireObject,
-} from "../lib/http";
-import { voteKey } from "../lib/security";
-import { createBallot, getBallot, getTournamentState } from "../lib/storage";
+} from "../../server/http";
+import { enforceRateLimit } from "../../server/rate-limit";
+import { voteKey } from "../../server/security";
+import {
+  createBallot,
+  getBallot,
+  getTournamentState,
+  initializeStorage,
+} from "../../server/storage";
+import type { ServerEnv } from "../../server/types";
 
 const METHODS = ["POST", "OPTIONS"] as const;
 const MAX_VOTE_BODY_BYTES = 2 * 1024;
 
-export default async function vote(
-  request: Request,
-  context: Context,
-): Promise<Response> {
+export const onRequest: PagesFunction<ServerEnv> = async ({
+  request,
+  env,
+}) => {
   try {
     if (request.method === "OPTIONS") {
       return preflightResponse(request, METHODS);
@@ -30,6 +35,9 @@ export default async function vote(
     if (request.method !== "POST") {
       return methodNotAllowed(request, METHODS);
     }
+
+    await initializeStorage(env);
+    await enforceRateLimit(env, request, "vote:create", 12);
 
     const body = requireObject(
       await readJson(request, MAX_VOTE_BODY_BYTES),
@@ -47,7 +55,7 @@ export default async function vote(
       );
     }
 
-    const current = await getTournamentState();
+    const current = await getTournamentState(env);
     const player = current.state.players.find(
       (candidate) => candidate.id === body.playerId,
     );
@@ -55,10 +63,10 @@ export default async function vote(
       throw new HttpError(404, "PLAYER_NOT_FOUND", "Игрок не найден");
     }
 
-    const ballotKey = voteKey(request, context.ip, true) as string;
-    const modified = await createBallot(ballotKey, player.id);
+    const voterKey = (await voteKey(request, env, true)) as string;
+    const modified = await createBallot(env, voterKey, player.id);
     if (!modified) {
-      const existingBallot = await getBallot(ballotKey);
+      const existingBallot = await getBallot(env, voterKey);
       throw new HttpError(
         409,
         "ALREADY_VOTED",
@@ -67,20 +75,11 @@ export default async function vote(
       );
     }
 
-    const dashboard = await buildDashboard(request, context, current.state);
-    return jsonResponse(request, dashboard);
+    return jsonResponse(
+      request,
+      await buildDashboard(request, env, current.state),
+    );
   } catch (error) {
     return errorResponse(request, error);
   }
-}
-
-export const config: Config = {
-  path: "/api/vote",
-  method: ["POST", "OPTIONS"],
-  rateLimit: {
-    action: "rate_limit",
-    aggregateBy: ["ip", "domain"],
-    windowLimit: 12,
-    windowSize: 60,
-  },
 };

@@ -11,6 +11,14 @@ export const TOURNAMENT_MAPS = [
 export type GroupId = (typeof GROUP_IDS)[number];
 export type TournamentMap = (typeof TOURNAMENT_MAPS)[number];
 
+export interface ServerEnv {
+  DB: D1Database;
+  ADMIN_PIN?: string;
+  SESSION_SECRET?: string;
+}
+
+export type Env = ServerEnv;
+
 export interface Player {
   id: string;
   name: string;
@@ -48,9 +56,4 @@ export interface DashboardResponse {
   state: TournamentState;
   votes: VoteSummary;
   isAdmin: boolean;
-}
-
-export interface StoredTournamentState {
-  state: TournamentState;
-  etag: string;
 }

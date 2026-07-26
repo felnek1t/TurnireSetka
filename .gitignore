@@ -1,9 +1,13 @@
 node_modules/
 dist/
 .netlify/
+.wrangler/
 .tmp/
-.env
-.env.local
+.env*
+.dev.vars*
+!.dev.vars.example
+wrangler.jsonc
+wrangler.toml
 *.local
 *.log
 coverage/

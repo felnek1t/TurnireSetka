@@ -22,11 +22,7 @@ export class HttpError extends Error {
 
 function sameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
-  if (!origin || origin === new URL(request.url).origin) {
-    return true;
-  }
-
-  return false;
+  return !origin || origin === new URL(request.url).origin;
 }
 
 function responseHeaders(

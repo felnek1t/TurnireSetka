@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "turnire-setka",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-07-26",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "turnire-setka",
+      "database_id": "PASTE_REAL_DATABASE_ID_HERE",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

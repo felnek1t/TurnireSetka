@@ -11,7 +11,7 @@
 - выбор карты для каждого матча и стартовых сторон CT/T;
 - автоматическое продвижение игроков и очистка зависимых результатов;
 - голосование один раз с устройства/сети;
-- общие данные для всех гостей и автообновление раз в 5 секунд;
+- общие данные для всех гостей и автообновление раз в 10 секунд;
 - редактирование названия и имён, сброс сетки и голосов;
 - адаптивная версия для компьютера и телефона.
 
@@ -21,12 +21,18 @@
 
 ```bash
 npm install
+npm run build
+```
+
+Для локального API скопируйте `.dev.vars.example` в `.dev.vars`, замените
+`SESSION_SECRET` случайной строкой не короче 32 символов и запустите:
+
+```bash
 npm run dev
 ```
 
-Откройте адрес, который напечатает Vite, обычно `http://localhost:5173`.
-
-Локальные серверные переменные лежат в `.env`. Файл исключён из Git. Шаблон — `.env.example`.
+Wrangler напечатает локальный адрес. D1 создаётся локально и сохраняется в
+`.wrangler/`.
 
 Проверка проекта:
 
@@ -34,34 +40,89 @@ npm run dev
 npm run check
 ```
 
-## Бесплатный хостинг на Netlify
+## Бесплатный хостинг на Cloudflare Pages
 
-Проект использует Netlify Functions и Netlify Blobs. Поэтому обычный статический хостинг вроде GitHub Pages покажет интерфейс, но не сможет синхронизировать сетку, безопасно проверять PIN и хранить общие голоса.
+Проект использует Cloudflare Pages Functions и D1. Обычный статический хостинг
+покажет интерфейс, но не сможет синхронизировать сетку, безопасно проверять PIN
+и хранить общие голоса.
 
-Самый простой вариант:
+### 1. Создайте базу
 
-1. Создайте Git-репозиторий и загрузите эту папку на GitHub.
-2. В Netlify выберите **Add new project → Import an existing project**.
-3. Подключите репозиторий. Настройки уже записаны в `netlify.toml`:
-   - build command: `npm run build`;
-   - publish directory: `dist`;
-   - functions directory: `netlify/functions`.
-4. В **Project configuration → Environment variables** добавьте:
+В Cloudflare откройте **Storage & databases → D1 SQL database → Create**:
 
-   ```text
-   ADMIN_PIN=6996
-   SESSION_SECRET=<длинная случайная строка, минимум 32 символа>
-   ```
+```text
+Database name: turnire-setka
+```
 
-   Секрет можно сгенерировать командой:
+Таблицы создадутся автоматически при первом запросе сайта. Версионная копия
+схемы также лежит в `migrations/0001_initial.sql`.
 
-   ```bash
-   node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
-   ```
+### 2. Подключите GitHub
 
-5. Запустите deploy. После публикации откройте выданный адрес `*.netlify.app`.
+Откройте **Workers & Pages → Create application → Pages → Connect to Git**,
+выберите репозиторий `felnek1t/TurnireSetka` и укажите:
 
-На бесплатном плане Netlify доступны CDN, Functions и Blob storage; для небольшой компании друзей этого достаточно. Официальные материалы: [Vite на Netlify](https://docs.netlify.com/build/frameworks/framework-setup-guides/vite/), [Netlify Functions](https://docs.netlify.com/build/functions/overview/), [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/).
+```text
+Project name: turnire-setka
+Production branch: main
+Framework preset: React (Vite) / Vite
+Build command: npm run build
+Build output directory: dist
+Root directory: оставить пустым
+```
+
+Версия Node уже закреплена файлом `.node-version`, поэтому дополнительная
+build-переменная не нужна.
+
+### 3. Привяжите D1
+
+После создания Pages-проекта откройте **Settings → Bindings → Add → D1
+database**:
+
+```text
+Variable name: DB
+D1 database: turnire-setka
+```
+
+Для Preview лучше создать отдельную базу `turnire-setka-preview`. Не
+подключайте preview-сборки к боевой D1, если не хотите, чтобы тестовая ссылка
+меняла настоящую сетку.
+
+### 4. Добавьте секреты
+
+В **Settings → Variables and Secrets → Add** создайте для Production две
+зашифрованные переменные (`Encrypt`):
+
+```text
+ADMIN_PIN=6996
+SESSION_SECRET=<случайная строка минимум из 32 символов>
+```
+
+Сгенерировать секрет можно локально:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Обязательно создайте новый `SESSION_SECRET`: старое значение из ранее
+опубликованного `.env` считается скомпрометированным. PIN `6996` тоже виден в
+публичном README и подходит только для игры среди друзей; если ссылку будут
+знать посторонние, задайте другой PIN.
+
+Не называйте их `VITE_ADMIN_PIN` или `VITE_SESSION_SECRET`: переменные с
+префиксом `VITE_` попадают в публичный браузерный код.
+
+### 5. Перезапустите публикацию
+
+После добавления binding и секретов откройте **Deployments** и нажмите
+**Retry deployment / Redeploy** у последнего коммита. Настройки применяются
+только к новому deployment. Готовый адрес будет иметь вид
+`https://turnire-setka.pages.dev`.
+
+Официальные материалы: [Git integration](https://developers.cloudflare.com/pages/get-started/git-integration/),
+[Pages Functions](https://developers.cloudflare.com/pages/functions/),
+[D1 bindings](https://developers.cloudflare.com/pages/functions/bindings/),
+[D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/).
 
 ## Как пользоваться
 
@@ -92,8 +153,8 @@ npm run check
 
 В «Настройках» можно изменить имена всех 16 игроков, название турнира, начать
 сетку заново вместе с картами и сторонами или очистить голоса. PIN меняется без
-пересборки сайта — достаточно обновить `ADMIN_PIN` в Netlify и сделать новый
-deploy.
+пересборки сайта — обновите зашифрованную переменную `ADMIN_PIN` в Cloudflare и
+сделайте новый deployment.
 
 ## Защита от накрутки
 
@@ -111,10 +172,10 @@ src/
   data/              стартовые 16 игроков
   lib/bracket.ts     расчёт матчей и продвижения
   lib/api.ts         запросы к серверу
-netlify/
-  functions/         API входа, состояния и голосов
-  lib/               хранение, валидация и безопасность
-netlify.toml          настройки сборки и функций
+functions/api/       маршруты Cloudflare Pages Functions
+server/              хранение D1, валидация и безопасность
+migrations/          схема Cloudflare D1
+public/_routes.json  запуск Functions только для /api/*
 ```
 
 Сервер хранит имена, выбранных победителей, карты, стартовые стороны и голоса.
