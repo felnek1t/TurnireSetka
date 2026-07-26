@@ -2827,3 +2827,495 @@ p {
     gap: 7px;
   }
 }
+
+/* Shared map veto --------------------------------------------------------- */
+
+.map-veto-section {
+  background:
+    radial-gradient(circle at 88% 0%, rgba(241, 196, 98, 0.09), transparent 25rem),
+    radial-gradient(circle at 5% 100%, rgba(93, 150, 244, 0.08), transparent 27rem),
+    var(--panel);
+}
+
+.map-veto-header {
+  align-items: flex-start;
+}
+
+.map-veto-header__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.map-veto-live {
+  display: inline-flex;
+  min-height: 34px;
+  padding: 7px 12px;
+  align-items: center;
+  border: 1px solid rgba(114, 199, 89, 0.34);
+  border-radius: 999px;
+  background: rgba(36, 79, 39, 0.2);
+  color: #a9e89b;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.map-veto-live.is-complete {
+  border-color: var(--line-gold);
+  background: rgba(111, 79, 21, 0.2);
+  color: var(--gold-bright);
+}
+
+.map-veto-reset,
+.map-veto-undo,
+.map-veto-choice {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.map-veto-reset {
+  padding: 8px 12px;
+  border: 1px solid rgba(230, 106, 84, 0.35);
+  background: rgba(104, 43, 39, 0.16);
+  color: #f1a092;
+}
+
+.map-veto-reset:hover:not(:disabled),
+.map-veto-undo:hover:not(:disabled),
+.map-veto-choice:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.map-veto-reset:hover:not(:disabled) {
+  border-color: rgba(230, 106, 84, 0.7);
+  background: rgba(104, 43, 39, 0.3);
+}
+
+.map-veto-reset:disabled,
+.map-veto-undo:disabled,
+.map-veto-choice:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.map-veto-stats {
+  display: flex;
+  margin: 0 0 16px;
+  padding: 10px 13px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 11px 22px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(4, 10, 16, 0.38);
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.map-veto-stats > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.map-veto-stats strong {
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.map-veto-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 0 9px rgba(93, 150, 244, 0.45);
+}
+
+.map-veto-dot--ban {
+  background: var(--red);
+  box-shadow: 0 0 9px rgba(230, 106, 84, 0.4);
+}
+
+.map-veto-dot--pick {
+  background: var(--gold-bright);
+  box-shadow: 0 0 9px rgba(241, 196, 98, 0.45);
+}
+
+.map-veto-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.map-veto-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 188px;
+  padding: 16px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(93, 150, 244, 0.27);
+  border-radius: 11px;
+  background:
+    linear-gradient(145deg, rgba(21, 42, 63, 0.7), rgba(7, 14, 22, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.map-veto-card::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--blue);
+  opacity: 0.68;
+  content: "";
+}
+
+.map-veto-card--ban {
+  border-color: rgba(230, 106, 84, 0.32);
+  background:
+    linear-gradient(145deg, rgba(75, 31, 30, 0.48), rgba(8, 13, 19, 0.96));
+}
+
+.map-veto-card--ban::after {
+  background: var(--red);
+}
+
+.map-veto-card--pick {
+  border-color: rgba(241, 196, 98, 0.48);
+  background:
+    radial-gradient(circle at 90% 0%, rgba(241, 196, 98, 0.13), transparent 55%),
+    linear-gradient(145deg, rgba(58, 47, 24, 0.53), rgba(8, 13, 19, 0.96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 0 24px rgba(215, 161, 48, 0.07);
+}
+
+.map-veto-card--pick::after {
+  background: var(--gold-bright);
+  opacity: 0.9;
+}
+
+.map-veto-card.is-last-remaining {
+  border-color: rgba(114, 199, 89, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 0 26px rgba(114, 199, 89, 0.11);
+}
+
+.map-veto-card.is-last-remaining::after {
+  background: var(--green);
+}
+
+.map-veto-card__top {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.map-veto-status {
+  display: inline-flex;
+  min-height: 25px;
+  padding: 5px 9px;
+  align-items: center;
+  border: 1px solid rgba(93, 150, 244, 0.28);
+  border-radius: 999px;
+  background: rgba(23, 59, 105, 0.24);
+  color: var(--blue-bright);
+  font-size: 0.63rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.map-veto-status--ban {
+  border-color: rgba(230, 106, 84, 0.35);
+  background: rgba(104, 43, 39, 0.25);
+  color: #f19a8b;
+}
+
+.map-veto-status--pick {
+  border-color: rgba(241, 196, 98, 0.45);
+  background: rgba(111, 79, 21, 0.27);
+  color: var(--gold-bright);
+}
+
+.map-veto-card.is-last-remaining .map-veto-status {
+  border-color: rgba(114, 199, 89, 0.4);
+  background: rgba(36, 79, 39, 0.25);
+  color: #a9e89b;
+}
+
+.map-veto-card__number {
+  color: rgba(197, 203, 211, 0.38);
+  font-size: 0.72rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-veto-card__name {
+  margin-top: 15px;
+  overflow: hidden;
+  color: #fff5e4;
+  font-family: "Arial Narrow", "Roboto Condensed", "Segoe UI", sans-serif;
+  font-size: clamp(1.18rem, 2vw, 1.46rem);
+  letter-spacing: 0.035em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.map-veto-card--ban .map-veto-card__name {
+  color: rgba(244, 239, 228, 0.55);
+  text-decoration: line-through;
+  text-decoration-color: rgba(230, 106, 84, 0.8);
+}
+
+.map-veto-card__code {
+  margin-top: 4px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.map-veto-card__controls {
+  display: grid;
+  margin-top: auto;
+  padding-top: 15px;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.map-veto-choice {
+  min-height: 44px;
+  padding: 8px 10px;
+}
+
+.map-veto-choice--ban {
+  border: 1px solid rgba(230, 106, 84, 0.34);
+  background: rgba(104, 43, 39, 0.17);
+  color: #f1a092;
+}
+
+.map-veto-choice--ban:hover:not(:disabled) {
+  border-color: rgba(230, 106, 84, 0.72);
+  background: rgba(104, 43, 39, 0.34);
+}
+
+.map-veto-choice--pick {
+  border: 1px solid rgba(241, 196, 98, 0.42);
+  background: rgba(111, 79, 21, 0.2);
+  color: var(--gold-bright);
+}
+
+.map-veto-choice--pick:hover:not(:disabled) {
+  border-color: rgba(241, 196, 98, 0.75);
+  background: rgba(111, 79, 21, 0.37);
+}
+
+.map-veto-undo {
+  min-height: 44px;
+  margin-top: auto;
+  padding: 7px 10px;
+  border: 1px solid var(--line-soft);
+  background: rgba(148, 174, 206, 0.055);
+  color: var(--muted);
+}
+
+.map-veto-undo:hover:not(:disabled) {
+  border-color: rgba(148, 174, 206, 0.34);
+  color: var(--ink-soft);
+}
+
+.map-veto-card__guest-state {
+  margin-top: auto;
+  padding-top: 15px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.map-veto-history {
+  display: flex;
+  min-width: 0;
+  margin-top: 14px;
+  padding: 12px 13px;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(4, 9, 14, 0.45);
+}
+
+.map-veto-history__label {
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+
+.map-veto-history ol {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+  list-style: none;
+}
+
+.map-veto-history p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.map-veto-history__item {
+  display: inline-flex;
+  min-height: 29px;
+  padding: 5px 9px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.map-veto-history__item > span {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(148, 174, 206, 0.12);
+  color: var(--ink-soft);
+  font-size: 0.57rem;
+  font-weight: 900;
+}
+
+.map-veto-history__item strong {
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
+.map-veto-history__item code {
+  color: var(--muted);
+}
+
+.map-veto-history__item--ban {
+  border-color: rgba(230, 106, 84, 0.28);
+}
+
+.map-veto-history__item--ban strong {
+  color: #f19a8b;
+}
+
+.map-veto-history__item--pick {
+  border-color: rgba(241, 196, 98, 0.32);
+}
+
+.map-veto-history__item--pick strong {
+  color: var(--gold-bright);
+}
+
+/* Prize distribution ------------------------------------------------------ */
+
+.section-card--prizes {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(215, 161, 48, 0.1), transparent 32rem),
+    var(--panel);
+}
+
+.podium-prize {
+  display: inline-flex;
+  margin-top: 12px;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.025em;
+}
+
+.podium-prize strong {
+  color: var(--podium-color, var(--gold-bright));
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+}
+
+@media (max-width: 900px) {
+  .map-veto-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .map-veto-header__actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 760px) {
+  .map-veto-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .map-veto-header__actions {
+    justify-content: flex-start;
+  }
+
+  .map-veto-history {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .map-veto-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .map-veto-card {
+    min-height: 178px;
+  }
+
+  .map-veto-header__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .map-veto-live,
+  .map-veto-reset {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .map-veto-stats {
+    justify-content: space-between;
+    gap: 8px;
+  }
+}

@@ -10,6 +10,7 @@ export const TOURNAMENT_MAPS = [
 
 export type GroupId = (typeof GROUP_IDS)[number];
 export type TournamentMap = (typeof TOURNAMENT_MAPS)[number];
+export type MapVetoKind = "ban" | "pick";
 
 export interface ServerEnv {
   DB: D1Database;
@@ -31,12 +32,18 @@ export interface MatchSettings {
   ctPlayerId?: string;
 }
 
+export interface MapVetoEntry {
+  map: TournamentMap;
+  kind: MapVetoKind;
+}
+
 export interface TournamentState {
   version: number;
   title: string;
   players: Player[];
   winners: Record<string, string>;
   matchSettings: Record<string, MatchSettings>;
+  mapVeto: MapVetoEntry[];
   updatedAt: string;
 }
 

@@ -34,6 +34,7 @@ export function createDefaultTournament(
     players: DEFAULT_PLAYERS.map((player) => ({ ...player })),
     winners: {},
     matchSettings: {},
+    mapVeto: [],
     updatedAt,
   };
 }

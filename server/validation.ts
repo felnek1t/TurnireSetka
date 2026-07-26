@@ -7,6 +7,8 @@ import {
   GROUP_IDS,
   TOURNAMENT_MAPS,
   type GroupId,
+  type MapVetoEntry,
+  type MapVetoKind,
   type MatchSettings,
   type Player,
   type TournamentMap,
@@ -113,6 +115,7 @@ export function validateTournamentState(value: unknown): TournamentState {
       "players",
       "winners",
       "matchSettings",
+      "mapVeto",
       "updatedAt",
     ])
   ) {
@@ -286,6 +289,56 @@ export function validateTournamentState(value: unknown): TournamentState {
     }
   }
 
+  const mapVeto: MapVetoEntry[] = [];
+  if (value.mapVeto !== undefined && !Array.isArray(value.mapVeto)) {
+    issues.push("mapVeto: ожидается массив");
+  } else if (Array.isArray(value.mapVeto)) {
+    if (value.mapVeto.length > TOURNAMENT_MAPS.length) {
+      issues.push(
+        `mapVeto: допускается не более ${TOURNAMENT_MAPS.length} решений`,
+      );
+    }
+
+    const decidedMaps = new Set<TournamentMap>();
+    for (const [index, rawEntry] of value.mapVeto.entries()) {
+      const path = `mapVeto[${index}]`;
+      if (!isRecord(rawEntry)) {
+        issues.push(`${path}: ожидается объект`);
+        continue;
+      }
+
+      if (!hasOnlyKeys(rawEntry, ["map", "kind"])) {
+        issues.push(`${path}: содержит неизвестные поля`);
+      }
+
+      const map =
+        typeof rawEntry.map === "string" && KNOWN_MAPS.has(rawEntry.map)
+          ? (rawEntry.map as TournamentMap)
+          : null;
+      const kind =
+        rawEntry.kind === "ban" || rawEntry.kind === "pick"
+          ? (rawEntry.kind as MapVetoKind)
+          : null;
+
+      if (!map) {
+        issues.push(
+          `${path}.map: карта должна быть одной из ${TOURNAMENT_MAPS.join(", ")}`,
+        );
+      } else if (decidedMaps.has(map)) {
+        issues.push(`${path}.map: карта "${map}" уже была выбрана`);
+      }
+
+      if (!kind) {
+        issues.push(`${path}.kind: ожидается ban или pick`);
+      }
+
+      if (map && kind && !decidedMaps.has(map)) {
+        decidedMaps.add(map);
+        mapVeto.push({ map, kind });
+      }
+    }
+  }
+
   if (issues.length === 0) {
     const candidate: TournamentState = {
       version: version as number,
@@ -293,6 +346,7 @@ export function validateTournamentState(value: unknown): TournamentState {
       players,
       winners,
       matchSettings,
+      mapVeto,
       updatedAt,
     };
     const sanitizedState = sanitizeCoreTournamentState(candidate);
@@ -333,6 +387,7 @@ export function validateTournamentState(value: unknown): TournamentState {
     players,
     winners,
     matchSettings,
+    mapVeto,
     updatedAt,
   };
 }

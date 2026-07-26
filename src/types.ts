@@ -15,6 +15,13 @@ export type TournamentMap =
   | "de_nuke"
   | "de_train";
 
+export type MapVetoKind = "ban" | "pick";
+
+export interface MapVetoEntry {
+  map: TournamentMap;
+  kind: MapVetoKind;
+}
+
 export interface MatchSettings {
   map?: TournamentMap;
   ctPlayerId?: string;
@@ -33,6 +40,7 @@ export interface TournamentState {
   players: Player[];
   winners: Record<string, string>;
   matchSettings: Record<string, MatchSettings>;
+  mapVeto: MapVetoEntry[];
   updatedAt: string;
 }
 

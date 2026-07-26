@@ -8,6 +8,11 @@ interface PodiumProps {
 }
 
 const orderedPlaces = [2, 1, 3] as const;
+const prizes = {
+  1: "~3000 ₽",
+  2: "~1500 ₽",
+  3: "~500 ₽",
+} as const;
 
 export default function Podium({
   placements,
@@ -46,6 +51,9 @@ export default function Podium({
             <strong className="podium-name">
               {placement?.player?.name ?? "Ещё не определено"}
             </strong>
+            <span className="podium-prize">
+              Приз <strong>{prizes[place]}</strong>
+            </span>
           </article>
         );
       })}

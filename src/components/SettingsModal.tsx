@@ -136,7 +136,9 @@ export default function SettingsModal({
             />
             <span>
               <strong>Начать сетку заново</strong>
-              <small>Очистятся результаты, карты и выбранные стороны</small>
+              <small>
+                Очистятся результаты, карты и стороны; бан/пик останется
+              </small>
             </span>
           </label>
           <label className="reset-option">

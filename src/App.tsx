@@ -33,6 +33,7 @@ import {
   XIcon,
 } from "./components/Icons";
 import LoginModal from "./components/LoginModal";
+import MapVetoPanel from "./components/MapVetoPanel";
 import Podium from "./components/Podium";
 import SettingsModal from "./components/SettingsModal";
 import VotePanel from "./components/VotePanel";
@@ -57,7 +58,16 @@ import {
   setMatchMap,
   setMatchWinner,
 } from "./lib/bracket";
-import type { TournamentMap, TournamentState } from "./types";
+import {
+  decideMapVeto,
+  removeMapVetoDecision,
+  resetMapVeto,
+} from "./lib/mapVeto";
+import type {
+  MapVetoKind,
+  TournamentMap,
+  TournamentState,
+} from "./types";
 
 interface ActiveDrag {
   playerId: string;
@@ -238,7 +248,7 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const load = useCallback(async (quiet = false) => {
+  const load = useCallback(async (quiet = false, forceApply = false) => {
     if (!quiet) {
       setLoadError("");
     } else {
@@ -247,7 +257,7 @@ export default function App() {
 
     try {
       const next = await getDashboard();
-      if (quiet && busyRef.current) {
+      if (quiet && busyRef.current && !forceApply) {
         return;
       }
       setDashboard((current) => {
@@ -316,7 +326,7 @@ export default function App() {
         setDashboard(previous);
 
         if (error instanceof ApiError && error.status === 409) {
-          await load(true);
+          await load(true, true);
           showToast(
             "Сетка уже изменилась в другой вкладке — данные обновлены",
             "warning",
@@ -450,6 +460,72 @@ export default function App() {
     },
     [commitState, dashboard, showToast],
   );
+
+  const handleMapVetoDecision = useCallback(
+    async (map: TournamentMap, kind: MapVetoKind) => {
+      if (!dashboard?.isAdmin || busyRef.current) {
+        return;
+      }
+
+      try {
+        const nextState = decideMapVeto(dashboard.state, map, kind);
+        await commitState(
+          nextState,
+          `${map}: ${kind === "ban" ? "бан" : "пик"} сохранён`,
+        );
+      } catch (error) {
+        showToast(
+          error instanceof Error
+            ? error.message
+            : "Не удалось сохранить бан/пик",
+          "error",
+        );
+      }
+    },
+    [commitState, dashboard, showToast],
+  );
+
+  const handleMapVetoUndo = useCallback(
+    async (map: TournamentMap) => {
+      if (!dashboard?.isAdmin || busyRef.current) {
+        return;
+      }
+
+      try {
+        const nextState = removeMapVetoDecision(dashboard.state, map);
+        await commitState(nextState, `Решение по ${map} отменено`);
+      } catch (error) {
+        showToast(
+          error instanceof Error ? error.message : "Не удалось отменить решение",
+          "error",
+        );
+      }
+    },
+    [commitState, dashboard, showToast],
+  );
+
+  const handleMapVetoReset = useCallback(async () => {
+    if (
+      !dashboard?.isAdmin ||
+      busyRef.current ||
+      dashboard.state.mapVeto.length === 0
+    ) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Сбросить весь текущий бан/пик? Результаты матчей и выбранные в них карты не изменятся.",
+      )
+    ) {
+      return;
+    }
+
+    await commitState(
+      resetMapVeto(dashboard.state),
+      "Бан/пик сброшен — все карты снова доступны",
+    );
+  }, [commitState, dashboard]);
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
@@ -757,9 +833,9 @@ export default function App() {
                   Режим организатора включён
                 </p>
                 <p className="admin-toolbar__hint">
-                  Выбери карту и стороны CT/T прямо в карточке. Победителя
-                  отметь кубком или перетащи дальше по сетке. Сохранено в{" "}
-                  {lastUpdated}.
+                  Веди общий бан/пик, выбирай карту и стороны CT/T в карточках.
+                  Победителя отметь кубком или перетащи дальше по сетке.
+                  Сохранено в {lastUpdated}.
                 </p>
               </div>
               <div className="admin-toolbar__actions">
@@ -782,6 +858,9 @@ export default function App() {
 
           <nav className="tabs-wrap" aria-label="Разделы турнира">
             <div className="tabs">
+              <a className="tab" href="#map-veto">
+                Бан / пик
+              </a>
               <a className="tab" href="#groups">
                 Группы
               </a>
@@ -791,6 +870,9 @@ export default function App() {
               <a className="tab" href="#playoff">
                 Плей-офф
               </a>
+              <a className="tab" href="#prizes">
+                Призы
+              </a>
               <a className="tab" href="#voting">
                 Голосование
               </a>
@@ -798,6 +880,15 @@ export default function App() {
           </nav>
 
           <div className="stack">
+            <MapVetoPanel
+              entries={dashboard.state.mapVeto}
+              isAdmin={dashboard.isAdmin}
+              busy={isBusy}
+              onDecide={handleMapVetoDecision}
+              onUndo={handleMapVetoUndo}
+              onReset={handleMapVetoReset}
+            />
+
             <section className="section-card" id="groups">
               <header className="section-header">
                 <div>
@@ -912,11 +1003,22 @@ export default function App() {
                   void configureMatchSides(matchId, playerId)
                 }
               />
+            </section>
 
-              <div className="podium-heading">
-                <p className="section-kicker">Итоговое распределение</p>
-                <h3>Пьедестал турнира</h3>
-              </div>
+            <section className="section-card section-card--prizes" id="prizes">
+              <header className="section-header">
+                <div>
+                  <p className="section-kicker">Итоговое распределение</p>
+                  <h2 className="section-heading section-heading--gold">
+                    Призовые места
+                  </h2>
+                  <p className="section-description">
+                    Любая игра в Steam в пределах указанной суммы. Имена
+                    появятся автоматически по результатам сетки.
+                  </p>
+                </div>
+                <TrophyIcon className="section-icon" width={36} height={36} />
+              </header>
               <Podium
                 placements={snapshot.placements}
                 isDropTarget={validDropIds.has("podium")}
@@ -947,7 +1049,7 @@ export default function App() {
           <footer className="site-footer">
             <span>CS2 Friends Tournament</span>
             <span>
-              Сетка обновлена в {lastUpdated} · данные синхронизируются каждые 5
+              Сетка обновлена в {lastUpdated} · данные синхронизируются каждые 10
               секунд
             </span>
           </footer>

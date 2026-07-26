@@ -29,6 +29,7 @@ export function createDefaultState(now = new Date()): TournamentState {
     players: createPlayers(),
     winners: {},
     matchSettings: {},
+    mapVeto: [],
     updatedAt: now.toISOString(),
   };
 }
