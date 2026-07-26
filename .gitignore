@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.netlify/
+.tmp/
+.env
+.env.local
+*.local
+*.log
+coverage/
+playwright-report/
+test-results/
