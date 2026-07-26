@@ -7,18 +7,32 @@ export interface Player {
   group: GroupId;
 }
 
+export type TournamentMap =
+  | "de_dust2"
+  | "de_mirage"
+  | "de_overpass"
+  | "de_inferno"
+  | "de_nuke"
+  | "de_train";
+
+export interface MatchSettings {
+  map?: TournamentMap;
+  ctPlayerId?: string;
+}
+
 /**
  * Persisted tournament data.
  *
- * Only explicit winner choices are stored. Match participants, standings and
- * placements are derived from those choices, so stale bracket data cannot be
- * persisted accidentally.
+ * Only explicit winner choices and organizer-defined match settings are
+ * stored. Match participants, standings and placements are derived from those
+ * choices, so stale bracket data cannot be persisted accidentally.
  */
 export interface TournamentState {
   version: number;
   title: string;
   players: Player[];
   winners: Record<string, string>;
+  matchSettings: Record<string, MatchSettings>;
   updatedAt: string;
 }
 

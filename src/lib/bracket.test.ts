@@ -4,15 +4,20 @@ import {
   GROUP_IDS,
   GROUP_MATCH_IDS,
   MATCH_DEFINITIONS,
+  TOURNAMENT_MAPS,
   applyPlayerDrop,
   getGroupStandings,
+  getMatchSettings,
   getMatchDestinations,
   getPlacements,
   getResolvedMatch,
+  sanitizeTournamentState,
   getStageProgress,
   getTournamentProgress,
   resolvePlayerDropTarget,
   sanitizeWinners,
+  setMatchCtPlayer,
+  setMatchMap,
   setMatchWinner,
 } from "./bracket";
 import { createDefaultTournament, DEFAULT_PLAYERS } from "../data/defaultTournament";
@@ -91,6 +96,18 @@ describe("default tournament definition", () => {
     ).toHaveLength(5);
     expect(new Set(MATCH_DEFINITIONS.map(({ id }) => id)).size).toBe(28);
   });
+
+  it("provides the six supported CS2 maps and empty match settings", () => {
+    expect(TOURNAMENT_MAPS).toEqual([
+      "de_dust2",
+      "de_mirage",
+      "de_overpass",
+      "de_inferno",
+      "de_nuke",
+      "de_train",
+    ]);
+    expect(createDefaultTournament(NOW).matchSettings).toEqual({});
+  });
 });
 
 describe("match resolution", () => {
@@ -166,6 +183,82 @@ describe("dependent result sanitization", () => {
     };
 
     expect(sanitizeWinners(state)).toEqual({});
+  });
+});
+
+describe("match settings", () => {
+  it("allows choosing and clearing a map even while the match is locked", () => {
+    const matchId = GROUP_MATCH_IDS.A.winners;
+    let state = createDefaultTournament(NOW);
+
+    state = setMatchMap(state, matchId, "de_mirage", NOW);
+    expect(getMatchSettings(state, matchId)).toEqual({ map: "de_mirage" });
+
+    state = setMatchMap(state, matchId, null, NOW);
+    expect(getMatchSettings(state, matchId)).toEqual({});
+    expect(state.matchSettings[matchId]).toBeUndefined();
+  });
+
+  it("sets CT only to a participant of a ready or complete match", () => {
+    const matchId = GROUP_MATCH_IDS.A.opening1;
+    let state = createDefaultTournament(NOW);
+
+    state = setMatchCtPlayer(state, matchId, "doshik", NOW);
+    expect(getMatchSettings(state, matchId)).toEqual({
+      ctPlayerId: "doshik",
+    });
+
+    state = choose(state, matchId, "doshik");
+    expect(getMatchSettings(state, matchId).ctPlayerId).toBe("doshik");
+
+    state = setMatchCtPlayer(state, matchId, null, NOW);
+    expect(getMatchSettings(state, matchId)).toEqual({});
+
+    expect(() =>
+      setMatchCtPlayer(state, matchId, "maclay", NOW),
+    ).toThrow(/not a participant/i);
+    expect(() =>
+      setMatchCtPlayer(
+        state,
+        GROUP_MATCH_IDS.A.winners,
+        "doshik",
+        NOW,
+      ),
+    ).toThrow(/not ready/i);
+  });
+
+  it("keeps maps but removes stale downstream CT assignments", () => {
+    let state = createDefaultTournament(NOW);
+    state = choose(state, GROUP_MATCH_IDS.A.opening1, "doshik");
+    state = choose(state, GROUP_MATCH_IDS.A.opening2, "dima");
+    state = setMatchMap(state, GROUP_MATCH_IDS.A.winners, "de_nuke", NOW);
+    state = setMatchCtPlayer(
+      state,
+      GROUP_MATCH_IDS.A.winners,
+      "dima",
+      NOW,
+    );
+
+    state = choose(state, GROUP_MATCH_IDS.A.opening1, "limpompo");
+
+    expect(getMatchSettings(state, GROUP_MATCH_IDS.A.winners)).toEqual({
+      map: "de_nuke",
+    });
+  });
+
+  it("sanitizes an invalid persisted side assignment", () => {
+    const matchId = GROUP_MATCH_IDS.A.opening1;
+    const state = createDefaultTournament(NOW);
+    state.matchSettings = {
+      [matchId]: {
+        map: "de_train",
+        ctPlayerId: "maclay",
+      },
+    };
+
+    expect(sanitizeTournamentState(state).matchSettings).toEqual({
+      [matchId]: { map: "de_train" },
+    });
   });
 });
 

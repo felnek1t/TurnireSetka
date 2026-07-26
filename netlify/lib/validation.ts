@@ -1,12 +1,24 @@
-import { ALL_MATCH_IDS, sanitizeWinners } from "../../src/lib/bracket";
+import {
+  ALL_MATCH_IDS,
+  sanitizeTournamentState as sanitizeCoreTournamentState,
+} from "../../src/lib/bracket";
 
-import { GROUP_IDS, type GroupId, type Player, type TournamentState } from "./types";
+import {
+  GROUP_IDS,
+  TOURNAMENT_MAPS,
+  type GroupId,
+  type MatchSettings,
+  type Player,
+  type TournamentMap,
+  type TournamentState,
+} from "./types";
 
 const PLAYER_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
 const MATCH_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,63}$/i;
 const MAX_VERSION = 2_147_483_647;
 const MAX_WINNERS = 64;
 const KNOWN_MATCH_IDS = new Set(ALL_MATCH_IDS);
+const KNOWN_MAPS = new Set<string>(TOURNAMENT_MAPS);
 
 export class ValidationError extends Error {
   readonly issues: string[];
@@ -94,7 +106,16 @@ export function validateTournamentState(value: unknown): TournamentState {
     throw new ValidationError(["state: ожидается объект"]);
   }
 
-  if (!hasOnlyKeys(value, ["version", "title", "players", "winners", "updatedAt"])) {
+  if (
+    !hasOnlyKeys(value, [
+      "version",
+      "title",
+      "players",
+      "winners",
+      "matchSettings",
+      "updatedAt",
+    ])
+  ) {
     issues.push("state: содержит неизвестные поля");
   }
 
@@ -192,15 +213,87 @@ export function validateTournamentState(value: unknown): TournamentState {
     }
   }
 
+  const matchSettings: Record<string, MatchSettings> = {};
+  if (value.matchSettings !== undefined && !isRecord(value.matchSettings)) {
+    issues.push("matchSettings: ожидается объект");
+  } else if (isRecord(value.matchSettings)) {
+    const settingsEntries = Object.entries(value.matchSettings);
+    if (settingsEntries.length > ALL_MATCH_IDS.length) {
+      issues.push(
+        `matchSettings: допускается не более ${ALL_MATCH_IDS.length} матчей`,
+      );
+    }
+
+    for (const [matchId, rawSettings] of settingsEntries) {
+      if (!MATCH_ID_PATTERN.test(matchId)) {
+        issues.push(`matchSettings.${matchId}: некорректный id матча`);
+        continue;
+      }
+
+      if (!KNOWN_MATCH_IDS.has(matchId)) {
+        issues.push(`matchSettings.${matchId}: матч не найден`);
+        continue;
+      }
+
+      if (!isRecord(rawSettings)) {
+        issues.push(`matchSettings.${matchId}: ожидается объект`);
+        continue;
+      }
+
+      if (!hasOnlyKeys(rawSettings, ["map", "ctPlayerId"])) {
+        issues.push(`matchSettings.${matchId}: содержит неизвестные поля`);
+      }
+
+      const settings: MatchSettings = {};
+
+      if (Object.hasOwn(rawSettings, "map")) {
+        if (
+          typeof rawSettings.map !== "string" ||
+          !KNOWN_MAPS.has(rawSettings.map)
+        ) {
+          issues.push(
+            `matchSettings.${matchId}.map: карта должна быть одной из ${TOURNAMENT_MAPS.join(", ")}`,
+          );
+        } else {
+          settings.map = rawSettings.map as TournamentMap;
+        }
+      }
+
+      if (Object.hasOwn(rawSettings, "ctPlayerId")) {
+        if (typeof rawSettings.ctPlayerId !== "string") {
+          issues.push(
+            `matchSettings.${matchId}.ctPlayerId: id игрока должен быть строкой`,
+          );
+        } else {
+          const ctPlayerId = rawSettings.ctPlayerId.trim();
+          const player = playersByNormalizedId.get(
+            ctPlayerId.toLocaleLowerCase("en-US"),
+          );
+          if (!player) {
+            issues.push(
+              `matchSettings.${matchId}.ctPlayerId: игрок "${ctPlayerId}" не найден`,
+            );
+          } else {
+            settings.ctPlayerId = player.id;
+          }
+        }
+      }
+
+      matchSettings[matchId] = settings;
+    }
+  }
+
   if (issues.length === 0) {
     const candidate: TournamentState = {
       version: version as number,
       title,
       players,
       winners,
+      matchSettings,
       updatedAt,
     };
-    const sanitizedWinners = sanitizeWinners(candidate);
+    const sanitizedState = sanitizeCoreTournamentState(candidate);
+    const sanitizedWinners = sanitizedState.winners;
     const winnerEntries = Object.entries(winners);
     const winnersAreValid =
       Object.keys(sanitizedWinners).length === winnerEntries.length &&
@@ -213,6 +306,18 @@ export function validateTournamentState(value: unknown): TournamentState {
         "winners: победитель должен быть участником готового матча; сначала заполните предыдущие матчи",
       );
     }
+
+    for (const [matchId, settings] of Object.entries(matchSettings)) {
+      if (
+        settings.ctPlayerId !== undefined &&
+        sanitizedState.matchSettings[matchId]?.ctPlayerId !==
+          settings.ctPlayerId
+      ) {
+        issues.push(
+          `matchSettings.${matchId}.ctPlayerId: CT должен быть текущим участником матча`,
+        );
+      }
+    }
   }
 
   if (issues.length > 0) {
@@ -224,6 +329,7 @@ export function validateTournamentState(value: unknown): TournamentState {
     title,
     players,
     winners,
+    matchSettings,
     updatedAt,
   };
 }

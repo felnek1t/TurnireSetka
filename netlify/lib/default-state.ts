@@ -28,6 +28,7 @@ export function createDefaultState(now = new Date()): TournamentState {
     title: "Турнир CS2 1x1 (16 игроков)",
     players: createPlayers(),
     winners: {},
+    matchSettings: {},
     updatedAt: now.toISOString(),
   };
 }

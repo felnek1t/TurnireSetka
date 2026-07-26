@@ -77,6 +77,7 @@ export default function SettingsModal({
           name: cleanNames[player.id],
         })),
         winners: resetBracket ? {} : state.winners,
+        matchSettings: resetBracket ? {} : state.matchSettings,
         updatedAt: new Date().toISOString(),
       },
       resetVotes,
@@ -134,8 +135,8 @@ export default function SettingsModal({
               onChange={(event) => setResetBracket(event.target.checked)}
             />
             <span>
-              <strong>Очистить все результаты</strong>
-              <small>Все игроки вернутся в начало сетки</small>
+              <strong>Начать сетку заново</strong>
+              <small>Очистятся результаты, карты и выбранные стороны</small>
             </span>
           </label>
           <label className="reset-option">

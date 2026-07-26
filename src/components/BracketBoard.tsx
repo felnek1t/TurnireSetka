@@ -1,4 +1,8 @@
-import type { ResolvedMatch } from "../types";
+import type {
+  MatchSettings,
+  ResolvedMatch,
+  TournamentMap,
+} from "../types";
 import MatchCard from "./MatchCard";
 
 export interface BracketColumnDefinition {
@@ -11,17 +15,25 @@ export interface BracketColumnDefinition {
 interface BracketBoardProps {
   columns: BracketColumnDefinition[];
   matches: ResolvedMatch[];
+  matchSettings: Record<string, MatchSettings>;
   isAdmin: boolean;
+  settingsPending: boolean;
   validDropIds: Set<string>;
   onChooseWinner: (matchId: string, playerId: string) => void;
+  onSetMap: (matchId: string, map: TournamentMap | null) => void;
+  onSetCtPlayer: (matchId: string, playerId: string | null) => void;
 }
 
 export default function BracketBoard({
   columns,
   matches,
+  matchSettings,
   isAdmin,
+  settingsPending,
   validDropIds,
   onChooseWinner,
+  onSetMap,
+  onSetCtPlayer,
 }: BracketBoardProps) {
   return (
     <div className="bracket-scroll" tabIndex={0}>
@@ -51,10 +63,14 @@ export default function BracketBoard({
                   <MatchCard
                     key={match.id}
                     match={match}
+                    settings={matchSettings[match.id] ?? {}}
                     isAdmin={isAdmin}
+                    settingsPending={settingsPending}
                     isFinal={column.finalIds?.includes(match.id)}
                     validDropTarget={validDropIds.has(match.id)}
                     onChooseWinner={onChooseWinner}
+                    onSetMap={onSetMap}
+                    onSetCtPlayer={onSetCtPlayer}
                   />
                 );
               })}

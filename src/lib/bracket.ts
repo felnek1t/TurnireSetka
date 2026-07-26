@@ -3,10 +3,12 @@ import type {
   GroupStanding,
   MatchDefinition,
   MatchDestination,
+  MatchSettings,
   ParticipantSource,
   Player,
   PlayerDropTarget,
   ResolvedMatch,
+  TournamentMap,
   TournamentPlacement,
   TournamentProgress,
   TournamentSnapshot,
@@ -15,6 +17,15 @@ import type {
 } from "../types";
 
 export const GROUP_IDS: readonly GroupId[] = ["A", "B", "C", "D"];
+
+export const TOURNAMENT_MAPS: readonly TournamentMap[] = [
+  "de_dust2",
+  "de_mirage",
+  "de_overpass",
+  "de_inferno",
+  "de_nuke",
+  "de_train",
+];
 
 export interface GroupMatchIds {
   opening1: string;
@@ -369,20 +380,167 @@ export function sanitizeWinners(
   return evaluateTournament(state).winners;
 }
 
+function isTournamentMap(value: unknown): value is TournamentMap {
+  return TOURNAMENT_MAPS.some((map) => map === value);
+}
+
+function sanitizeMatchSettingsFromEvaluation(
+  state: TournamentState,
+  evaluation: Evaluation,
+): Record<string, MatchSettings> {
+  const sanitizedSettings: Record<string, MatchSettings> = {};
+  const sourceSettings = state.matchSettings ?? {};
+
+  for (const definition of MATCH_DEFINITIONS) {
+    const settings = sourceSettings[definition.id];
+    if (!settings) {
+      continue;
+    }
+
+    const match = evaluation.matchesById.get(definition.id);
+    const sanitized: MatchSettings = {};
+
+    if (isTournamentMap(settings.map)) {
+      sanitized.map = settings.map;
+    }
+
+    if (
+      match &&
+      match.status !== "locked" &&
+      match.participants.some(
+        (participant) => participant?.id === settings.ctPlayerId,
+      )
+    ) {
+      sanitized.ctPlayerId = settings.ctPlayerId;
+    }
+
+    if (sanitized.map !== undefined || sanitized.ctPlayerId !== undefined) {
+      sanitizedSettings[definition.id] = sanitized;
+    }
+  }
+
+  return sanitizedSettings;
+}
+
+export function getMatchSettings(
+  state: TournamentState,
+  matchId: string,
+): MatchSettings {
+  if (!matchDefinitionsById.has(matchId)) {
+    throw new RangeError(`Unknown match: ${matchId}`);
+  }
+
+  const evaluation = evaluateTournament(state);
+  return {
+    ...sanitizeMatchSettingsFromEvaluation(state, evaluation)[matchId],
+  };
+}
+
 export function sanitizeTournamentState(
   state: TournamentState,
   updatedAt = state.updatedAt,
 ): TournamentState {
+  const evaluation = evaluateTournament(state);
+
   return {
     ...state,
-    winners: sanitizeWinners(state),
+    winners: evaluation.winners,
+    matchSettings: sanitizeMatchSettingsFromEvaluation(state, evaluation),
+    updatedAt,
+  };
+}
+
+export function setMatchMap(
+  state: TournamentState,
+  matchId: string,
+  map: TournamentMap | null,
+  updatedAt = new Date().toISOString(),
+): TournamentState {
+  if (!matchDefinitionsById.has(matchId)) {
+    throw new RangeError(`Unknown match: ${matchId}`);
+  }
+  if (map !== null && !isTournamentMap(map)) {
+    throw new RangeError(`Unknown tournament map: ${map}`);
+  }
+
+  const cleanState = sanitizeTournamentState(state);
+  const currentSettings = cleanState.matchSettings[matchId] ?? {};
+  const matchSettings = { ...cleanState.matchSettings };
+
+  if (map === null) {
+    const { map: _removedMap, ...remainingSettings } = currentSettings;
+    if (remainingSettings.ctPlayerId === undefined) {
+      delete matchSettings[matchId];
+    } else {
+      matchSettings[matchId] = remainingSettings;
+    }
+  } else {
+    matchSettings[matchId] = {
+      ...currentSettings,
+      map,
+    };
+  }
+
+  return {
+    ...cleanState,
+    matchSettings,
+    updatedAt,
+  };
+}
+
+export function setMatchCtPlayer(
+  state: TournamentState,
+  matchId: string,
+  playerId: string | null,
+  updatedAt = new Date().toISOString(),
+): TournamentState {
+  if (!matchDefinitionsById.has(matchId)) {
+    throw new RangeError(`Unknown match: ${matchId}`);
+  }
+
+  const cleanState = sanitizeTournamentState(state);
+  const match = getResolvedMatch(cleanState, matchId);
+
+  if (playerId !== null) {
+    if (!match || match.status === "locked") {
+      throw new RangeError(`Match is not ready: ${matchId}`);
+    }
+    if (!match.participants.some((player) => player?.id === playerId)) {
+      throw new RangeError(
+        `Player ${playerId} is not a participant of match ${matchId}`,
+      );
+    }
+  }
+
+  const currentSettings = cleanState.matchSettings[matchId] ?? {};
+  const matchSettings = { ...cleanState.matchSettings };
+
+  if (playerId === null) {
+    const { ctPlayerId: _removedCtPlayer, ...remainingSettings } =
+      currentSettings;
+    if (remainingSettings.map === undefined) {
+      delete matchSettings[matchId];
+    } else {
+      matchSettings[matchId] = remainingSettings;
+    }
+  } else {
+    matchSettings[matchId] = {
+      ...currentSettings,
+      ctPlayerId: playerId,
+    };
+  }
+
+  return {
+    ...cleanState,
+    matchSettings,
     updatedAt,
   };
 }
 
 /**
  * Selects (or clears with null) a match winner and immutably removes every
- * downstream choice that is no longer possible after the change.
+ * downstream choice and CT-side assignment that is no longer possible after
+ * the change.
  */
 export function setMatchWinner(
   state: TournamentState,
@@ -416,10 +574,54 @@ export function setMatchWinner(
     winners[matchId] = winnerId;
   }
 
+  const nextEvaluation = evaluateTournament({
+    ...cleanState,
+    winners,
+  });
+  const currentEvaluation = evaluateTournament(cleanState);
+  const matchSettings = { ...cleanState.matchSettings };
+
+  for (const [configuredMatchId, settings] of Object.entries(matchSettings)) {
+    if (!settings.ctPlayerId) {
+      continue;
+    }
+
+    const beforeParticipants = currentEvaluation.matchesById
+      .get(configuredMatchId)
+      ?.participants.flatMap((participant) =>
+        participant ? [participant.id] : [],
+      )
+      .sort();
+    const afterParticipants = nextEvaluation.matchesById
+      .get(configuredMatchId)
+      ?.participants.flatMap((participant) =>
+        participant ? [participant.id] : [],
+      )
+      .sort();
+
+    if (
+      beforeParticipants?.length === 2 &&
+      afterParticipants?.length === 2 &&
+      beforeParticipants.every(
+        (playerId, index) => playerId === afterParticipants[index],
+      )
+    ) {
+      continue;
+    }
+
+    const { ctPlayerId: _removedCtPlayer, ...remainingSettings } = settings;
+    if (remainingSettings.map === undefined) {
+      delete matchSettings[configuredMatchId];
+    } else {
+      matchSettings[configuredMatchId] = remainingSettings;
+    }
+  }
+
   return sanitizeTournamentState(
     {
       ...cleanState,
       winners,
+      matchSettings,
       updatedAt,
     },
     updatedAt,
@@ -679,6 +881,7 @@ export function resolveTournament(
   const sanitizedState: TournamentState = {
     ...state,
     winners: evaluation.winners,
+    matchSettings: sanitizeMatchSettingsFromEvaluation(state, evaluation),
   };
 
   return {

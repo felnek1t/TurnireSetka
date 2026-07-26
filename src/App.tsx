@@ -53,9 +53,11 @@ import {
   buildTournamentSnapshot,
   getPlayerDropTargets,
   getStageProgress,
+  setMatchCtPlayer,
+  setMatchMap,
   setMatchWinner,
 } from "./lib/bracket";
-import type { TournamentState } from "./types";
+import type { TournamentMap, TournamentState } from "./types";
 
 interface ActiveDrag {
   playerId: string;
@@ -245,6 +247,9 @@ export default function App() {
 
     try {
       const next = await getDashboard();
+      if (quiet && busyRef.current) {
+        return;
+      }
       setDashboard((current) => {
         if (!current || next.state.version >= current.state.version) {
           return next;
@@ -356,12 +361,24 @@ export default function App() {
       const invalidated = Object.keys(currentState.winners).filter(
         (id) => id !== matchId && nextState.winners[id] !== currentState.winners[id],
       );
+      const clearedSides = Object.entries(currentState.matchSettings).filter(
+        ([id, settings]) =>
+          Boolean(settings.ctPlayerId) &&
+          nextState.matchSettings[id]?.ctPlayerId !== settings.ctPlayerId,
+      );
       if (
-        invalidated.length > 0 &&
+        (invalidated.length > 0 || clearedSides.length > 0) &&
         !window.confirm(
-          `Этот выбор сбросит ${invalidated.length} зависим${
-            invalidated.length === 1 ? "ый результат" : "ых результата"
-          }. Продолжить?`,
+          `Этот выбор сбросит ${[
+            invalidated.length > 0
+              ? `зависимые результаты: ${invalidated.length}`
+              : "",
+            clearedSides.length > 0
+              ? `назначения сторон CT/T: ${clearedSides.length}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("; ")}. Продолжить?`,
         )
       ) {
         return;
@@ -371,6 +388,65 @@ export default function App() {
         currentState.players.find((player) => player.id === playerId)?.name ??
         "Игрок";
       await commitState(nextState, `${playerName} продвинут по сетке`);
+    },
+    [commitState, dashboard, showToast],
+  );
+
+  const configureMatchMap = useCallback(
+    async (matchId: string, map: TournamentMap | null) => {
+      if (!dashboard?.isAdmin || busyRef.current) {
+        return;
+      }
+
+      let nextState: TournamentState;
+      try {
+        nextState = setMatchMap(dashboard.state, matchId, map);
+      } catch (error) {
+        showToast(
+          error instanceof Error ? error.message : "Не удалось выбрать карту",
+          "error",
+        );
+        return;
+      }
+
+      await commitState(
+        nextState,
+        map ? `Карта матча: ${map}` : "Карта матча очищена",
+      );
+    },
+    [commitState, dashboard, showToast],
+  );
+
+  const configureMatchSides = useCallback(
+    async (matchId: string, ctPlayerId: string | null) => {
+      if (!dashboard?.isAdmin || busyRef.current) {
+        return;
+      }
+
+      let nextState: TournamentState;
+      try {
+        nextState = setMatchCtPlayer(
+          dashboard.state,
+          matchId,
+          ctPlayerId,
+        );
+      } catch (error) {
+        showToast(
+          error instanceof Error ? error.message : "Не удалось выбрать стороны",
+          "error",
+        );
+        return;
+      }
+
+      const ctPlayer = ctPlayerId
+        ? dashboard.state.players.find((player) => player.id === ctPlayerId)
+        : null;
+      await commitState(
+        nextState,
+        ctPlayer
+          ? `${ctPlayer.name} начинает за CT, соперник — за T`
+          : "Стартовые стороны очищены",
+      );
     },
     [commitState, dashboard, showToast],
   );
@@ -598,6 +674,7 @@ export default function App() {
                   <button
                     type="button"
                     className="btn btn--ghost header-logout"
+                    aria-label="Выйти из режима организатора"
                     onClick={() => void handleLogout()}
                     disabled={isBusy}
                   >
@@ -611,6 +688,7 @@ export default function App() {
                   <button
                     type="button"
                     className="login-button"
+                    aria-label="Войти как организатор"
                     onClick={() => {
                       setLoginError("");
                       setShowLogin(true);
@@ -679,8 +757,9 @@ export default function App() {
                   Режим организатора включён
                 </p>
                 <p className="admin-toolbar__hint">
-                  Перетащи игрока в следующий матч или нажми кубок рядом с его
-                  именем. Сохранено в {lastUpdated}.
+                  Выбери карту и стороны CT/T прямо в карточке. Победителя
+                  отметь кубком или перетащи дальше по сетке. Сохранено в{" "}
+                  {lastUpdated}.
                 </p>
               </div>
               <div className="admin-toolbar__actions">
@@ -740,9 +819,16 @@ export default function App() {
                     matches={snapshot.matches}
                     standings={snapshot.groups[group]}
                     isAdmin={dashboard.isAdmin}
+                    settingsPending={isBusy}
                     validDropIds={validDropIds}
                     onChooseWinner={(matchId, playerId) =>
                       void chooseWinner(matchId, playerId)
+                    }
+                    onSetMap={(matchId, map) =>
+                      void configureMatchMap(matchId, map)
+                    }
+                    onSetCtPlayer={(matchId, playerId) =>
+                      void configureMatchSides(matchId, playerId)
                     }
                   />
                 ))}
@@ -780,10 +866,18 @@ export default function App() {
               <BracketBoard
                 columns={lastChanceColumns}
                 matches={snapshot.matches}
+                matchSettings={dashboard.state.matchSettings}
                 isAdmin={dashboard.isAdmin}
+                settingsPending={isBusy}
                 validDropIds={validDropIds}
                 onChooseWinner={(matchId, playerId) =>
                   void chooseWinner(matchId, playerId)
+                }
+                onSetMap={(matchId, map) =>
+                  void configureMatchMap(matchId, map)
+                }
+                onSetCtPlayer={(matchId, playerId) =>
+                  void configureMatchSides(matchId, playerId)
                 }
               />
             </section>
@@ -804,10 +898,18 @@ export default function App() {
               <BracketBoard
                 columns={playoffColumns}
                 matches={snapshot.matches}
+                matchSettings={dashboard.state.matchSettings}
                 isAdmin={dashboard.isAdmin}
+                settingsPending={isBusy}
                 validDropIds={validDropIds}
                 onChooseWinner={(matchId, playerId) =>
                   void chooseWinner(matchId, playerId)
+                }
+                onSetMap={(matchId, map) =>
+                  void configureMatchMap(matchId, map)
+                }
+                onSetCtPlayer={(matchId, playerId) =>
+                  void configureMatchSides(matchId, playerId)
                 }
               />
 

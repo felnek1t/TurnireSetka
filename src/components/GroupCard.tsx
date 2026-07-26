@@ -3,6 +3,7 @@ import type {
   GroupId,
   GroupStanding,
   ResolvedMatch,
+  TournamentMap,
   TournamentState,
 } from "../types";
 import MatchCard from "./MatchCard";
@@ -13,8 +14,11 @@ interface GroupCardProps {
   matches: ResolvedMatch[];
   standings: GroupStanding[];
   isAdmin: boolean;
+  settingsPending: boolean;
   validDropIds: Set<string>;
   onChooseWinner: (matchId: string, playerId: string) => void;
+  onSetMap: (matchId: string, map: TournamentMap | null) => void;
+  onSetCtPlayer: (matchId: string, playerId: string | null) => void;
 }
 
 const placementLabel = ["Плей-офф", "Последний шанс", "Выбыл", "Выбыл"];
@@ -25,8 +29,11 @@ export default function GroupCard({
   matches,
   standings,
   isAdmin,
+  settingsPending,
   validDropIds,
   onChooseWinner,
+  onSetMap,
+  onSetCtPlayer,
 }: GroupCardProps) {
   const ids = GROUP_MATCH_IDS[group];
   const orderedIds = [
@@ -89,10 +96,14 @@ export default function GroupCard({
           <MatchCard
             key={match.id}
             match={match}
+            settings={state.matchSettings[match.id] ?? {}}
             isAdmin={isAdmin}
+            settingsPending={settingsPending}
             compact
             validDropTarget={validDropIds.has(match.id)}
             onChooseWinner={onChooseWinner}
+            onSetMap={onSetMap}
+            onSetCtPlayer={onSetCtPlayer}
           />
         ))}
       </div>
