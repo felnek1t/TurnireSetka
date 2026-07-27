@@ -19,6 +19,7 @@ interface BracketBoardProps {
   isAdmin: boolean;
   settingsPending: boolean;
   validDropIds: Set<string>;
+  shuffleMode?: boolean;
   onChooseWinner: (matchId: string, playerId: string) => void;
   onSetMap: (matchId: string, map: TournamentMap | null) => void;
   onSetCtPlayer: (matchId: string, playerId: string | null) => void;
@@ -31,6 +32,7 @@ export default function BracketBoard({
   isAdmin,
   settingsPending,
   validDropIds,
+  shuffleMode = false,
   onChooseWinner,
   onSetMap,
   onSetCtPlayer,
@@ -68,6 +70,8 @@ export default function BracketBoard({
                     settingsPending={settingsPending}
                     isFinal={column.finalIds?.includes(match.id)}
                     validDropTarget={validDropIds.has(match.id)}
+                    shuffleMode={shuffleMode}
+                    validShuffleDropIds={validDropIds}
                     onChooseWinner={onChooseWinner}
                     onSetMap={onSetMap}
                     onSetCtPlayer={onSetCtPlayer}

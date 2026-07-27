@@ -11,6 +11,11 @@ export const TOURNAMENT_MAPS = [
 export type GroupId = (typeof GROUP_IDS)[number];
 export type TournamentMap = (typeof TOURNAMENT_MAPS)[number];
 export type MapVetoKind = "ban" | "pick";
+export type BracketEntrantStage = "last-chance" | "playoff";
+export type BracketEntrantOrder = [string, string, string, string];
+export type BracketEntrants = Partial<
+  Record<BracketEntrantStage, BracketEntrantOrder>
+>;
 
 export interface ServerEnv {
   DB: D1Database;
@@ -44,6 +49,7 @@ export interface TournamentState {
   winners: Record<string, string>;
   matchSettings: Record<string, MatchSettings>;
   mapVeto: MapVetoEntry[];
+  bracketEntrants: BracketEntrants;
   updatedAt: string;
 }
 

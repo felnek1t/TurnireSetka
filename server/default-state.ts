@@ -30,6 +30,7 @@ export function createDefaultState(now = new Date()): TournamentState {
     winners: {},
     matchSettings: {},
     mapVeto: [],
+    bracketEntrants: {},
     updatedAt: now.toISOString(),
   };
 }

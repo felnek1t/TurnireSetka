@@ -35,6 +35,7 @@ export function createDefaultTournament(
     winners: {},
     matchSettings: {},
     mapVeto: [],
+    bracketEntrants: {},
     updatedAt,
   };
 }

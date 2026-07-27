@@ -24,6 +24,7 @@ import GroupCard from "./components/GroupCard";
 import {
   CheckIcon,
   EditIcon,
+  GripIcon,
   LockIcon,
   LogOutIcon,
   RefreshIcon,
@@ -34,6 +35,7 @@ import {
 } from "./components/Icons";
 import LoginModal from "./components/LoginModal";
 import MapVetoPanel from "./components/MapVetoPanel";
+import PlacementBands from "./components/PlacementBands";
 import Podium from "./components/Podium";
 import SettingsModal from "./components/SettingsModal";
 import VotePanel from "./components/VotePanel";
@@ -52,11 +54,16 @@ import {
   GROUP_IDS,
   applyPlayerDrop,
   buildTournamentSnapshot,
+  canShuffleBracketEntrants,
+  getBracketEntrantDropId,
+  getBracketSwapTargets,
   getPlayerDropTargets,
   getStageProgress,
+  parseBracketEntrantDropId,
   setMatchCtPlayer,
   setMatchMap,
   setMatchWinner,
+  swapBracketEntrants,
 } from "./lib/bracket";
 import {
   decideMapVeto,
@@ -64,6 +71,7 @@ import {
   resetMapVeto,
 } from "./lib/mapVeto";
 import type {
+  BracketEntrantStage,
   MapVetoKind,
   TournamentMap,
   TournamentState,
@@ -73,6 +81,8 @@ interface ActiveDrag {
   playerId: string;
   playerName: string;
   fromMatchId: string;
+  fromSlot: 0 | 1;
+  dragMode: "advance" | "shuffle";
 }
 
 interface ToastState {
@@ -215,6 +225,8 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [shuffleStage, setShuffleStage] =
+    useState<BracketEntrantStage | null>(null);
   const [loginError, setLoginError] = useState("");
   const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
   const [validDropIds, setValidDropIds] = useState<Set<string>>(new Set());
@@ -300,6 +312,12 @@ export default function App() {
 
     return () => window.clearInterval(interval);
   }, [load, showLogin, showSettings]);
+
+  useEffect(() => {
+    if (dashboard && !dashboard.isAdmin) {
+      setShuffleStage(null);
+    }
+  }, [dashboard?.isAdmin]);
 
   const snapshot = useMemo(
     () => (dashboard ? buildTournamentSnapshot(dashboard.state) : null),
@@ -533,11 +551,31 @@ export default function App() {
         return;
       }
       const data = event.active.data.current as ActiveDrag | undefined;
-      if (!data?.playerId || !data.fromMatchId) {
+      if (
+        !data?.playerId ||
+        !data.fromMatchId ||
+        (data.fromSlot !== 0 && data.fromSlot !== 1)
+      ) {
         return;
       }
 
       setActiveDrag(data);
+      if (data.dragMode === "shuffle") {
+        const targets = getBracketSwapTargets(
+          dashboard.state,
+          data.fromMatchId,
+          data.fromSlot,
+        );
+        setValidDropIds(
+          new Set(
+            targets.map((target) =>
+              getBracketEntrantDropId(target.matchId, target.slot),
+            ),
+          ),
+        );
+        return;
+      }
+
       const targets = getPlayerDropTargets(
         dashboard.state,
         data.playerId,
@@ -567,6 +605,80 @@ export default function App() {
         return;
       }
 
+      if (data.dragMode === "shuffle") {
+        if (!validDropIds.has(targetId)) {
+          return;
+        }
+        const target = parseBracketEntrantDropId(targetId);
+        if (!target) {
+          return;
+        }
+
+        let nextState: TournamentState;
+        try {
+          nextState = swapBracketEntrants(
+            dashboard.state,
+            data.fromMatchId,
+            data.fromSlot,
+            target.matchId,
+            target.slot,
+          );
+        } catch (error) {
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Не удалось поменять игроков местами",
+            "error",
+          );
+          return;
+        }
+
+        const invalidated = Object.keys(dashboard.state.winners).filter(
+          (matchId) =>
+            nextState.winners[matchId] !==
+            dashboard.state.winners[matchId],
+        );
+        const clearedSides = Object.entries(
+          dashboard.state.matchSettings,
+        ).filter(
+          ([matchId, settings]) =>
+            Boolean(settings.ctPlayerId) &&
+            nextState.matchSettings[matchId]?.ctPlayerId !==
+              settings.ctPlayerId,
+        );
+        if (
+          (invalidated.length > 0 || clearedSides.length > 0) &&
+          !window.confirm(
+            `Перестановка сбросит ${[
+              invalidated.length > 0
+                ? `результаты матчей: ${invalidated.length}`
+                : "",
+              clearedSides.length > 0
+                ? `назначения сторон CT/T: ${clearedSides.length}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("; ")}. Карты матчей сохранятся. Продолжить?`,
+          )
+        ) {
+          return;
+        }
+
+        const targetPlayerId = buildTournamentSnapshot(
+          dashboard.state,
+        ).matches.find(
+          (match) => match.id === target.matchId,
+        )?.participants[target.slot]?.id;
+        const targetPlayer = dashboard.state.players.find(
+          (player) => player.id === targetPlayerId,
+        );
+        await commitState(
+          nextState,
+          `${data.playerName} и ${targetPlayer?.name ?? "игрок"} поменяны местами`,
+        );
+        return;
+      }
+
       if (
         targetId === "podium" &&
         data.fromMatchId === BRACKET_MATCH_IDS.grandFinal
@@ -592,7 +704,14 @@ export default function App() {
         showToast("Этого игрока нельзя перенести в выбранный матч", "warning");
       }
     },
-    [chooseWinner, clearDrag, dashboard, showToast],
+    [
+      chooseWinner,
+      clearDrag,
+      commitState,
+      dashboard,
+      showToast,
+      validDropIds,
+    ],
   );
 
   const handleLogin = useCallback(
@@ -625,6 +744,7 @@ export default function App() {
       setDashboard((current) =>
         current ? { ...current, isAdmin: false } : current,
       );
+      setShuffleStage(null);
       showToast("Вы снова в гостевом режиме");
     } catch (error) {
       showToast(
@@ -720,6 +840,14 @@ export default function App() {
 
   const stageLabel = getStageLabel(dashboard.state);
   const lastUpdated = formattedTime(dashboard.state.updatedAt);
+  const canShuffleLastChance = canShuffleBracketEntrants(
+    dashboard.state,
+    "last-chance",
+  );
+  const canShufflePlayoff = canShuffleBracketEntrants(
+    dashboard.state,
+    "playoff",
+  );
 
   return (
     <DndContext
@@ -834,8 +962,8 @@ export default function App() {
                 </p>
                 <p className="admin-toolbar__hint">
                   Веди общий бан/пик, выбирай карту и стороны CT/T в карточках.
-                  Победителя отметь кубком или перетащи дальше по сетке.
-                  Сохранено в {lastUpdated}.
+                  В финальных сетках можно отдельно включить перемешивание
+                  стартовых пар. Сохранено в {lastUpdated}.
                 </p>
               </div>
               <div className="admin-toolbar__actions">
@@ -952,8 +1080,54 @@ export default function App() {
                     финал плей‑офф.
                   </p>
                 </div>
-                <RefreshIcon className="section-icon" width={34} height={34} />
+                <div className="stage-header-actions">
+                  {dashboard.isAdmin ? (
+                    <button
+                      type="button"
+                      className={[
+                        "stage-shuffle-button",
+                        shuffleStage === "last-chance" ? "is-active" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      disabled={!canShuffleLastChance || isBusy}
+                      aria-pressed={shuffleStage === "last-chance"}
+                      title={
+                        canShuffleLastChance
+                          ? "Поменять пары полуфиналов местами"
+                          : "Сначала определите вторые места всех групп"
+                      }
+                      onClick={() =>
+                        setShuffleStage((current) =>
+                          current === "last-chance"
+                            ? null
+                            : "last-chance",
+                        )
+                      }
+                    >
+                      <GripIcon width={17} height={17} />
+                      {shuffleStage === "last-chance"
+                        ? "Готово"
+                        : "Перемешать"}
+                    </button>
+                  ) : null}
+                  <RefreshIcon
+                    className="section-icon"
+                    width={34}
+                    height={34}
+                  />
+                </div>
               </header>
+              {shuffleStage === "last-chance" ? (
+                <div className="shuffle-mode-banner" role="status">
+                  <GripIcon />
+                  <span>
+                    <strong>Перемешивание включено.</strong> Перетащи игрока
+                    прямо на игрока соседнего полуфинала — они поменяются
+                    местами.
+                  </span>
+                </div>
+              ) : null}
               <BracketBoard
                 columns={lastChanceColumns}
                 matches={snapshot.matches}
@@ -961,6 +1135,7 @@ export default function App() {
                 isAdmin={dashboard.isAdmin}
                 settingsPending={isBusy}
                 validDropIds={validDropIds}
+                shuffleMode={shuffleStage === "last-chance"}
                 onChooseWinner={(matchId, playerId) =>
                   void chooseWinner(matchId, playerId)
                 }
@@ -984,8 +1159,52 @@ export default function App() {
                     Верхняя и нижняя траектории сходятся в матче за чемпионство.
                   </p>
                 </div>
-                <SwordsIcon className="section-icon" width={36} height={36} />
+                <div className="stage-header-actions">
+                  {dashboard.isAdmin ? (
+                    <button
+                      type="button"
+                      className={[
+                        "stage-shuffle-button",
+                        shuffleStage === "playoff" ? "is-active" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      disabled={!canShufflePlayoff || isBusy}
+                      aria-pressed={shuffleStage === "playoff"}
+                      title={
+                        canShufflePlayoff
+                          ? "Поменять пары четвертьфиналов местами"
+                          : "Сначала определите победителей всех групп"
+                      }
+                      onClick={() =>
+                        setShuffleStage((current) =>
+                          current === "playoff" ? null : "playoff",
+                        )
+                      }
+                    >
+                      <GripIcon width={17} height={17} />
+                      {shuffleStage === "playoff"
+                        ? "Готово"
+                        : "Перемешать"}
+                    </button>
+                  ) : null}
+                  <SwordsIcon
+                    className="section-icon"
+                    width={36}
+                    height={36}
+                  />
+                </div>
               </header>
+              {shuffleStage === "playoff" ? (
+                <div className="shuffle-mode-banner" role="status">
+                  <GripIcon />
+                  <span>
+                    <strong>Перемешивание включено.</strong> Перетащи игрока
+                    прямо на игрока соседнего четвертьфинала — они поменяются
+                    местами.
+                  </span>
+                </div>
+              ) : null}
               <BracketBoard
                 columns={playoffColumns}
                 matches={snapshot.matches}
@@ -993,6 +1212,7 @@ export default function App() {
                 isAdmin={dashboard.isAdmin}
                 settingsPending={isBusy}
                 validDropIds={validDropIds}
+                shuffleMode={shuffleStage === "playoff"}
                 onChooseWinner={(matchId, playerId) =>
                   void chooseWinner(matchId, playerId)
                 }
@@ -1023,6 +1243,7 @@ export default function App() {
                 placements={snapshot.placements}
                 isDropTarget={validDropIds.has("podium")}
               />
+              <PlacementBands bands={snapshot.placementBands} />
             </section>
 
             <section className="section-card" id="voting">
@@ -1104,7 +1325,11 @@ export default function App() {
                 {activeDrag.playerName.slice(0, 1).toUpperCase()}
               </span>
               <strong>{activeDrag.playerName}</strong>
-              <span>перенести</span>
+              <span>
+                {activeDrag.dragMode === "shuffle"
+                  ? "поменять"
+                  : "перенести"}
+              </span>
             </div>
           ) : null}
         </DragOverlay>

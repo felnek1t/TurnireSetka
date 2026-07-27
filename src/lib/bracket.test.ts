@@ -6,10 +6,13 @@ import {
   MATCH_DEFINITIONS,
   TOURNAMENT_MAPS,
   applyPlayerDrop,
+  canShuffleBracketEntrants,
+  getBracketSwapTargets,
   getGroupStandings,
   getMatchSettings,
   getMatchDestinations,
   getPlacements,
+  getPlacementBands,
   getResolvedMatch,
   sanitizeTournamentState,
   getStageProgress,
@@ -19,6 +22,7 @@ import {
   setMatchCtPlayer,
   setMatchMap,
   setMatchWinner,
+  swapBracketEntrants,
 } from "./bracket";
 import { createDefaultTournament, DEFAULT_PLAYERS } from "../data/defaultTournament";
 import type { GroupId, TournamentState } from "../types";
@@ -52,6 +56,13 @@ function completeGroup(
   state = choose(state, ids.winners, first);
   state = choose(state, ids.losers, second);
   return choose(state, ids.decider, third);
+}
+
+function completeAllGroups(state: TournamentState): TournamentState {
+  for (const group of GROUP_IDS) {
+    state = completeGroup(state, group);
+  }
+  return state;
 }
 
 describe("default tournament definition", () => {
@@ -107,6 +118,7 @@ describe("default tournament definition", () => {
       "de_train",
     ]);
     expect(createDefaultTournament(NOW).matchSettings).toEqual({});
+    expect(createDefaultTournament(NOW).bracketEntrants).toEqual({});
   });
 });
 
@@ -315,6 +327,234 @@ describe("drag and drop targets", () => {
       NOW,
     );
     expect(nextState.winners[GROUP_MATCH_IDS.A.opening1]).toBe("doshik");
+  });
+});
+
+describe("manual bracket entrant shuffle", () => {
+  it("swaps players only between neighboring entry matches", () => {
+    let state = completeAllGroups(createDefaultTournament(NOW));
+
+    expect(canShuffleBracketEntrants(state, "last-chance")).toBe(true);
+    expect(
+      getBracketSwapTargets(
+        state,
+        BRACKET_MATCH_IDS.lastChanceSemi1,
+        0,
+      ),
+    ).toEqual([
+      {
+        stage: "last-chance",
+        matchId: BRACKET_MATCH_IDS.lastChanceSemi2,
+        slot: 0,
+      },
+      {
+        stage: "last-chance",
+        matchId: BRACKET_MATCH_IDS.lastChanceSemi2,
+        slot: 1,
+      },
+    ]);
+
+    state = swapBracketEntrants(
+      state,
+      BRACKET_MATCH_IDS.lastChanceSemi1,
+      0,
+      BRACKET_MATCH_IDS.lastChanceSemi2,
+      1,
+      NOW,
+    );
+
+    expect(state.bracketEntrants["last-chance"]).toEqual([
+      "zmeuga",
+      "n2ke",
+      "shpion",
+      "dima",
+    ]);
+    expect(
+      getResolvedMatch(
+        state,
+        BRACKET_MATCH_IDS.lastChanceSemi1,
+      )?.participants.map((player) => player?.id),
+    ).toEqual(["zmeuga", "n2ke"]);
+    expect(
+      getResolvedMatch(
+        state,
+        BRACKET_MATCH_IDS.lastChanceSemi2,
+      )?.participants.map((player) => player?.id),
+    ).toEqual(["shpion", "dima"]);
+  });
+
+  it("rejects unresolved, same-card and cross-stage swaps", () => {
+    const initial = createDefaultTournament(NOW);
+    expect(canShuffleBracketEntrants(initial, "playoff")).toBe(false);
+    expect(() =>
+      swapBracketEntrants(
+        initial,
+        BRACKET_MATCH_IDS.playoffQuarter1,
+        0,
+        BRACKET_MATCH_IDS.playoffQuarter2,
+        0,
+        NOW,
+      ),
+    ).toThrow(/четырёх участников/i);
+
+    const ready = completeAllGroups(initial);
+    expect(() =>
+      swapBracketEntrants(
+        ready,
+        BRACKET_MATCH_IDS.playoffQuarter1,
+        0,
+        BRACKET_MATCH_IDS.playoffQuarter1,
+        1,
+        NOW,
+      ),
+    ).toThrow(/соседними/i);
+    expect(() =>
+      swapBracketEntrants(
+        ready,
+        BRACKET_MATCH_IDS.playoffQuarter1,
+        0,
+        BRACKET_MATCH_IDS.lastChanceSemi2,
+        0,
+        NOW,
+      ),
+    ).toThrow(/одного этапа/i);
+  });
+
+  it("clears affected results and sides while preserving maps and the other branch", () => {
+    let state = completeAllGroups(createDefaultTournament(NOW));
+    state = setMatchMap(
+      state,
+      BRACKET_MATCH_IDS.lastChanceSemi1,
+      "de_train",
+      NOW,
+    );
+    state = setMatchCtPlayer(
+      state,
+      BRACKET_MATCH_IDS.lastChanceSemi1,
+      "dima",
+      NOW,
+    );
+
+    for (const definition of MATCH_DEFINITIONS.filter(
+      ({ stage }) => stage !== "group",
+    )) {
+      const match = getResolvedMatch(state, definition.id)!;
+      state = choose(state, definition.id, match.participants[0]!.id);
+    }
+
+    state = swapBracketEntrants(
+      state,
+      BRACKET_MATCH_IDS.lastChanceSemi1,
+      0,
+      BRACKET_MATCH_IDS.lastChanceSemi2,
+      0,
+      NOW,
+    );
+
+    expect(state.winners[BRACKET_MATCH_IDS.lastChanceSemi1]).toBeUndefined();
+    expect(state.winners[BRACKET_MATCH_IDS.lastChanceSemi2]).toBeUndefined();
+    expect(state.winners[BRACKET_MATCH_IDS.lastChanceFinal]).toBeUndefined();
+    expect(state.winners[BRACKET_MATCH_IDS.lowerFinal]).toBeUndefined();
+    expect(state.winners[BRACKET_MATCH_IDS.grandFinal]).toBeUndefined();
+    expect(state.winners[BRACKET_MATCH_IDS.playoffQuarter1]).toBeDefined();
+    expect(state.winners[BRACKET_MATCH_IDS.playoffQuarter2]).toBeDefined();
+    expect(state.winners[BRACKET_MATCH_IDS.upperFinal]).toBeDefined();
+    expect(
+      state.matchSettings[BRACKET_MATCH_IDS.lastChanceSemi1],
+    ).toEqual({ map: "de_train" });
+  });
+
+  it("drops a stale shuffle when a group qualifier changes", () => {
+    let state = completeAllGroups(createDefaultTournament(NOW));
+    state = swapBracketEntrants(
+      state,
+      BRACKET_MATCH_IDS.lastChanceSemi1,
+      0,
+      BRACKET_MATCH_IDS.lastChanceSemi2,
+      0,
+      NOW,
+    );
+
+    state = choose(state, GROUP_MATCH_IDS.A.decider, "limpompo");
+
+    expect(state.bracketEntrants["last-chance"]).toBeUndefined();
+    expect(
+      getResolvedMatch(
+        state,
+        BRACKET_MATCH_IDS.lastChanceSemi1,
+      )?.participants.map((player) => player?.id),
+    ).toEqual(["limpompo", "n2ke"]);
+  });
+});
+
+describe("complete placement table", () => {
+  it("shows known group eliminations while later places are pending", () => {
+    const state = completeGroup(createDefaultTournament(NOW), "A");
+    const bands = getPlacementBands(state);
+
+    expect(bands.map(({ from, to, entries }) => ({
+      from,
+      to,
+      players: entries.map(({ player }) => player?.id),
+    }))).toEqual([
+      { from: 4, to: 5, players: [undefined, undefined] },
+      { from: 6, to: 6, players: [undefined] },
+      { from: 7, to: 8, players: [undefined, undefined] },
+      {
+        from: 9,
+        to: 12,
+        players: ["limpompo", undefined, undefined, undefined],
+      },
+      {
+        from: 13,
+        to: 16,
+        players: ["max", undefined, undefined, undefined],
+      },
+    ]);
+  });
+
+  it("contains every player exactly once after the tournament", () => {
+    let state = createDefaultTournament(NOW);
+    for (const definition of MATCH_DEFINITIONS) {
+      const match = getResolvedMatch(state, definition.id)!;
+      state = choose(state, definition.id, match.participants[0]!.id);
+    }
+
+    const podiumIds = getPlacements(state).map(({ player }) => player?.id);
+    const bands = getPlacementBands(state);
+    const bandIds = bands.flatMap(({ entries }) =>
+      entries.map(({ player }) => player?.id),
+    );
+
+    expect(podiumIds).toEqual(["doshik", "dima", "maclay"]);
+    expect(
+      bands.map(({ from, to, entries }) => ({
+        from,
+        to,
+        players: entries.map(({ player }) => player?.id),
+      })),
+    ).toEqual([
+      { from: 4, to: 5, players: ["anemoia", "morty"] },
+      { from: 6, to: 6, players: ["shpion"] },
+      { from: 7, to: 8, players: ["n2ke", "zmeuga"] },
+      {
+        from: 9,
+        to: 12,
+        players: ["limpompo", "dross", "vitas", "fe1nekit"],
+      },
+      {
+        from: 13,
+        to: 16,
+        players: ["max", "mosya", "reizy", "fil"],
+      },
+    ]);
+
+    const allIds = [...podiumIds, ...bandIds];
+    expect(allIds).toHaveLength(16);
+    expect(new Set(allIds).size).toBe(16);
+    expect(new Set(allIds)).toEqual(
+      new Set(state.players.map(({ id }) => id)),
+    );
   });
 });
 

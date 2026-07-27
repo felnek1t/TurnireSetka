@@ -78,6 +78,7 @@ export default function SettingsModal({
         })),
         winners: resetBracket ? {} : state.winners,
         matchSettings: resetBracket ? {} : state.matchSettings,
+        bracketEntrants: resetBracket ? {} : state.bracketEntrants,
         updatedAt: new Date().toISOString(),
       },
       resetVotes,
@@ -137,7 +138,8 @@ export default function SettingsModal({
             <span>
               <strong>Начать сетку заново</strong>
               <small>
-                Очистятся результаты, карты и стороны; бан/пик останется
+                Очистятся результаты, карты, стороны и ручная расстановка;
+                бан/пик останется
               </small>
             </span>
           </label>

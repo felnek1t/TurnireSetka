@@ -22,6 +22,12 @@ export interface MapVetoEntry {
   kind: MapVetoKind;
 }
 
+export type BracketEntrantStage = "last-chance" | "playoff";
+export type BracketEntrantOrder = [string, string, string, string];
+export type BracketEntrants = Partial<
+  Record<BracketEntrantStage, BracketEntrantOrder>
+>;
+
 export interface MatchSettings {
   map?: TournamentMap;
   ctPlayerId?: string;
@@ -30,9 +36,10 @@ export interface MatchSettings {
 /**
  * Persisted tournament data.
  *
- * Only explicit winner choices and organizer-defined match settings are
- * stored. Match participants, standings and placements are derived from those
- * choices, so stale bracket data cannot be persisted accidentally.
+ * Explicit winner choices, organizer-defined match settings and optional
+ * four-player entry orders are stored. Later-round participants, standings and
+ * placements are derived, so stale bracket data cannot be persisted
+ * accidentally.
  */
 export interface TournamentState {
   version: number;
@@ -41,6 +48,7 @@ export interface TournamentState {
   winners: Record<string, string>;
   matchSettings: Record<string, MatchSettings>;
   mapVeto: MapVetoEntry[];
+  bracketEntrants: BracketEntrants;
   updatedAt: string;
 }
 
@@ -96,6 +104,21 @@ export interface TournamentPlacement {
   source: ParticipantSource;
 }
 
+export interface TournamentPlacementBand {
+  from: number;
+  to: number;
+  entries: Array<{
+    player: Player | null;
+    source: ParticipantSource;
+  }>;
+}
+
+export interface BracketEntrantSlot {
+  stage: BracketEntrantStage;
+  matchId: string;
+  slot: 0 | 1;
+}
+
 export interface TournamentProgress {
   completed: number;
   total: number;
@@ -126,5 +149,6 @@ export interface TournamentSnapshot {
   matches: ResolvedMatch[];
   groups: Record<GroupId, GroupStanding[]>;
   placements: TournamentPlacement[];
+  placementBands: TournamentPlacementBand[];
   progress: TournamentProgress;
 }

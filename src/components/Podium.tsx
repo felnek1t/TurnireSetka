@@ -20,6 +20,7 @@ export default function Podium({
 }: PodiumProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: "podium",
+    disabled: !isDropTarget,
   });
 
   return (

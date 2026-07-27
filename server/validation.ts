@@ -6,6 +6,9 @@ import {
 import {
   GROUP_IDS,
   TOURNAMENT_MAPS,
+  type BracketEntrants,
+  type BracketEntrantOrder,
+  type BracketEntrantStage,
   type GroupId,
   type MapVetoEntry,
   type MapVetoKind,
@@ -116,6 +119,7 @@ export function validateTournamentState(value: unknown): TournamentState {
       "winners",
       "matchSettings",
       "mapVeto",
+      "bracketEntrants",
       "updatedAt",
     ])
   ) {
@@ -339,6 +343,62 @@ export function validateTournamentState(value: unknown): TournamentState {
     }
   }
 
+  const bracketEntrants: BracketEntrants = {};
+  if (
+    value.bracketEntrants !== undefined &&
+    !isRecord(value.bracketEntrants)
+  ) {
+    issues.push("bracketEntrants: ожидается объект");
+  } else if (isRecord(value.bracketEntrants)) {
+    if (
+      !hasOnlyKeys(value.bracketEntrants, ["last-chance", "playoff"])
+    ) {
+      issues.push("bracketEntrants: содержит неизвестные этапы");
+    }
+
+    for (const stage of [
+      "last-chance",
+      "playoff",
+    ] as BracketEntrantStage[]) {
+      if (!Object.hasOwn(value.bracketEntrants, stage)) {
+        continue;
+      }
+
+      const rawOrder = value.bracketEntrants[stage];
+      const path = `bracketEntrants.${stage}`;
+      if (!Array.isArray(rawOrder) || rawOrder.length !== 4) {
+        issues.push(`${path}: ожидается массив из четырёх игроков`);
+        continue;
+      }
+
+      const order: string[] = [];
+      for (const [index, rawPlayerId] of rawOrder.entries()) {
+        if (typeof rawPlayerId !== "string") {
+          issues.push(`${path}[${index}]: id игрока должен быть строкой`);
+          continue;
+        }
+
+        const playerId = rawPlayerId.trim();
+        const player = playersByNormalizedId.get(
+          playerId.toLocaleLowerCase("en-US"),
+        );
+        if (!player) {
+          issues.push(`${path}[${index}]: игрок "${playerId}" не найден`);
+          continue;
+        }
+        order.push(player.id);
+      }
+
+      if (order.length === 4 && new Set(order).size !== 4) {
+        issues.push(`${path}: игроки не должны повторяться`);
+      }
+
+      if (order.length === 4 && new Set(order).size === 4) {
+        bracketEntrants[stage] = order as BracketEntrantOrder;
+      }
+    }
+  }
+
   if (issues.length === 0) {
     const candidate: TournamentState = {
       version: version as number,
@@ -347,6 +407,7 @@ export function validateTournamentState(value: unknown): TournamentState {
       winners,
       matchSettings,
       mapVeto,
+      bracketEntrants,
       updatedAt,
     };
     const sanitizedState = sanitizeCoreTournamentState(candidate);
@@ -375,6 +436,22 @@ export function validateTournamentState(value: unknown): TournamentState {
         );
       }
     }
+
+    for (const stage of Object.keys(
+      bracketEntrants,
+    ) as BracketEntrantStage[]) {
+      const requested = bracketEntrants[stage];
+      const sanitized = sanitizedState.bracketEntrants[stage];
+      if (
+        !requested ||
+        !sanitized ||
+        requested.some((playerId, index) => sanitized[index] !== playerId)
+      ) {
+        issues.push(
+          `bracketEntrants.${stage}: нужен полный набор текущих участников этапа`,
+        );
+      }
+    }
   }
 
   if (issues.length > 0) {
@@ -388,6 +465,7 @@ export function validateTournamentState(value: unknown): TournamentState {
     winners,
     matchSettings,
     mapVeto,
+    bracketEntrants,
     updatedAt,
   };
 }

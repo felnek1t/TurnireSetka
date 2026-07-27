@@ -1,4 +1,8 @@
 import type {
+  BracketEntrants,
+  BracketEntrantOrder,
+  BracketEntrantSlot,
+  BracketEntrantStage,
   GroupId,
   GroupStanding,
   MatchDefinition,
@@ -10,6 +14,7 @@ import type {
   ResolvedMatch,
   TournamentMap,
   TournamentPlacement,
+  TournamentPlacementBand,
   TournamentProgress,
   TournamentSnapshot,
   TournamentStage,
@@ -64,6 +69,84 @@ export const BRACKET_MATCH_IDS = {
   lowerFinal: "playoff-lower-final",
   grandFinal: "grand-final",
 } as const;
+
+export const BRACKET_ENTRANT_SLOTS: Readonly<
+  Record<BracketEntrantStage, readonly BracketEntrantSlot[]>
+> = {
+  "last-chance": [
+    {
+      stage: "last-chance",
+      matchId: BRACKET_MATCH_IDS.lastChanceSemi1,
+      slot: 0,
+    },
+    {
+      stage: "last-chance",
+      matchId: BRACKET_MATCH_IDS.lastChanceSemi1,
+      slot: 1,
+    },
+    {
+      stage: "last-chance",
+      matchId: BRACKET_MATCH_IDS.lastChanceSemi2,
+      slot: 0,
+    },
+    {
+      stage: "last-chance",
+      matchId: BRACKET_MATCH_IDS.lastChanceSemi2,
+      slot: 1,
+    },
+  ],
+  playoff: [
+    {
+      stage: "playoff",
+      matchId: BRACKET_MATCH_IDS.playoffQuarter1,
+      slot: 0,
+    },
+    {
+      stage: "playoff",
+      matchId: BRACKET_MATCH_IDS.playoffQuarter1,
+      slot: 1,
+    },
+    {
+      stage: "playoff",
+      matchId: BRACKET_MATCH_IDS.playoffQuarter2,
+      slot: 0,
+    },
+    {
+      stage: "playoff",
+      matchId: BRACKET_MATCH_IDS.playoffQuarter2,
+      slot: 1,
+    },
+  ],
+};
+
+const BRACKET_ENTRANT_DROP_PREFIX = "bracket-entrant-slot::";
+
+export function getBracketEntrantDropId(
+  matchId: string,
+  slot: 0 | 1,
+): string {
+  return `${BRACKET_ENTRANT_DROP_PREFIX}${matchId}::${slot}`;
+}
+
+export function parseBracketEntrantDropId(
+  value: string,
+): { matchId: string; slot: 0 | 1 } | null {
+  if (!value.startsWith(BRACKET_ENTRANT_DROP_PREFIX)) {
+    return null;
+  }
+
+  const match = value
+    .slice(BRACKET_ENTRANT_DROP_PREFIX.length)
+    .match(/^(.+)::([01])$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    matchId: match[1],
+    slot: Number(match[2]) as 0 | 1,
+  };
+}
 
 const seed = (playerId: string): ParticipantSource => ({
   type: "seed",
@@ -249,6 +332,38 @@ const matchDefinitionsById = new Map(
   MATCH_DEFINITIONS.map((definition) => [definition.id, definition]),
 );
 
+interface BracketEntrantSlotInfo extends BracketEntrantSlot {
+  index: number;
+}
+
+const bracketEntrantSlotLookup = new Map<string, BracketEntrantSlotInfo>(
+  Object.values(BRACKET_ENTRANT_SLOTS).flatMap((slots) =>
+    slots.map((slot, index) => [
+      getBracketEntrantDropId(slot.matchId, slot.slot),
+      { ...slot, index },
+    ]),
+  ),
+);
+
+function getBracketEntrantSlotInfo(
+  matchId: string,
+  slot: 0 | 1,
+): BracketEntrantSlotInfo | null {
+  return (
+    bracketEntrantSlotLookup.get(getBracketEntrantDropId(matchId, slot)) ??
+    null
+  );
+}
+
+export function isBracketEntrantSlot(
+  matchId: string,
+  slot: 0 | 1,
+  stage?: BracketEntrantStage,
+): boolean {
+  const info = getBracketEntrantSlotInfo(matchId, slot);
+  return Boolean(info && (stage === undefined || info.stage === stage));
+}
+
 interface Evaluation {
   matches: ResolvedMatch[];
   matchesById: Map<string, ResolvedMatch>;
@@ -270,6 +385,73 @@ function sourcePlayerFromEvaluation(
     : sourceMatch?.loser ?? null;
 }
 
+function defaultBracketEntrants(
+  stage: BracketEntrantStage,
+  playersById: Map<string, Player>,
+  matchesById: Map<string, ResolvedMatch>,
+): [Player | null, Player | null, Player | null, Player | null] {
+  return BRACKET_ENTRANT_SLOTS[stage].map(({ matchId, slot }) => {
+    const definition = matchDefinitionsById.get(matchId);
+    return definition
+      ? sourcePlayerFromEvaluation(
+          definition.sources[slot],
+          playersById,
+          matchesById,
+        )
+      : null;
+  }) as [Player | null, Player | null, Player | null, Player | null];
+}
+
+function validBracketEntrantOrder(
+  value: unknown,
+  defaultPlayers: readonly (Player | null)[],
+): BracketEntrantOrder | null {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 4 ||
+    !value.every((playerId) => typeof playerId === "string") ||
+    defaultPlayers.some((player) => player === null)
+  ) {
+    return null;
+  }
+
+  const order = value as string[];
+  const uniqueOrder = new Set(order);
+  const defaultIds = defaultPlayers.map((player) => player!.id);
+  if (
+    uniqueOrder.size !== 4 ||
+    defaultIds.some((playerId) => !uniqueOrder.has(playerId))
+  ) {
+    return null;
+  }
+
+  return [...order] as BracketEntrantOrder;
+}
+
+function resolvedBracketEntrants(
+  state: TournamentState,
+  stage: BracketEntrantStage,
+  playersById: Map<string, Player>,
+  matchesById: Map<string, ResolvedMatch>,
+): [Player | null, Player | null, Player | null, Player | null] {
+  const defaults = defaultBracketEntrants(stage, playersById, matchesById);
+  const order = validBracketEntrantOrder(
+    state.bracketEntrants?.[stage],
+    defaults,
+  );
+
+  if (!order) {
+    return defaults;
+  }
+
+  return order.map((playerId) => playersById.get(playerId) ?? null) as [
+    Player | null,
+    Player | null,
+    Player | null,
+    Player | null,
+  ];
+}
+
 /**
  * Resolves every match in topological order. This is also the single source of
  * truth for winner validation: an entry is accepted only when both competitors
@@ -282,11 +464,33 @@ function evaluateTournament(state: TournamentState): Evaluation {
   const matches: ResolvedMatch[] = [];
   const matchesById = new Map<string, ResolvedMatch>();
   const sanitizedWinners: Record<string, string> = {};
+  const entrantPlayersByStage = new Map<
+    BracketEntrantStage,
+    [Player | null, Player | null, Player | null, Player | null]
+  >();
 
   for (const definition of MATCH_DEFINITIONS) {
-    const participants = definition.sources.map((source) =>
-      sourcePlayerFromEvaluation(source, playersById, matchesById),
-    ) as [Player | null, Player | null];
+    const participants = definition.sources.map((source, slot) => {
+      const entrantSlot = getBracketEntrantSlotInfo(
+        definition.id,
+        slot as 0 | 1,
+      );
+      if (!entrantSlot) {
+        return sourcePlayerFromEvaluation(source, playersById, matchesById);
+      }
+
+      let entrants = entrantPlayersByStage.get(entrantSlot.stage);
+      if (!entrants) {
+        entrants = resolvedBracketEntrants(
+          state,
+          entrantSlot.stage,
+          playersById,
+          matchesById,
+        );
+        entrantPlayersByStage.set(entrantSlot.stage, entrants);
+      }
+      return entrants[entrantSlot.index];
+    }) as [Player | null, Player | null];
 
     const hasValidPair =
       participants[0] !== null &&
@@ -422,6 +626,35 @@ function sanitizeMatchSettingsFromEvaluation(
   return sanitizedSettings;
 }
 
+function sanitizeBracketEntrantsFromEvaluation(
+  state: TournamentState,
+  evaluation: Evaluation,
+): BracketEntrants {
+  const sanitized: BracketEntrants = {};
+  const playersById = new Map(
+    state.players.map((player) => [player.id, player] as const),
+  );
+
+  for (const stage of Object.keys(
+    BRACKET_ENTRANT_SLOTS,
+  ) as BracketEntrantStage[]) {
+    const defaults = defaultBracketEntrants(
+      stage,
+      playersById,
+      evaluation.matchesById,
+    );
+    const order = validBracketEntrantOrder(
+      state.bracketEntrants?.[stage],
+      defaults,
+    );
+    if (order) {
+      sanitized[stage] = order;
+    }
+  }
+
+  return sanitized;
+}
+
 export function getMatchSettings(
   state: TournamentState,
   matchId: string,
@@ -446,6 +679,7 @@ export function sanitizeTournamentState(
     ...state,
     winners: evaluation.winners,
     matchSettings: sanitizeMatchSettingsFromEvaluation(state, evaluation),
+    bracketEntrants: sanitizeBracketEntrantsFromEvaluation(state, evaluation),
     updatedAt,
   };
 }
@@ -706,6 +940,61 @@ export function getPlacements(
   }));
 }
 
+export const PLACEMENT_BAND_SOURCES: readonly {
+  from: number;
+  to: number;
+  sources: readonly ParticipantSource[];
+}[] = [
+  {
+    from: 4,
+    to: 5,
+    sources: [
+      loser(BRACKET_MATCH_IDS.playoffQuarter1),
+      loser(BRACKET_MATCH_IDS.playoffQuarter2),
+    ],
+  },
+  {
+    from: 6,
+    to: 6,
+    sources: [loser(BRACKET_MATCH_IDS.lastChanceFinal)],
+  },
+  {
+    from: 7,
+    to: 8,
+    sources: [
+      loser(BRACKET_MATCH_IDS.lastChanceSemi1),
+      loser(BRACKET_MATCH_IDS.lastChanceSemi2),
+    ],
+  },
+  {
+    from: 9,
+    to: 12,
+    sources: GROUP_IDS.map((group) =>
+      loser(GROUP_MATCH_IDS[group].decider),
+    ),
+  },
+  {
+    from: 13,
+    to: 16,
+    sources: GROUP_IDS.map((group) =>
+      loser(GROUP_MATCH_IDS[group].losers),
+    ),
+  },
+];
+
+export function getPlacementBands(
+  state: TournamentState,
+): TournamentPlacementBand[] {
+  return PLACEMENT_BAND_SOURCES.map(({ from, to, sources }) => ({
+    from,
+    to,
+    entries: sources.map((source) => ({
+      player: resolveParticipantSource(state, source),
+      source,
+    })),
+  }));
+}
+
 function progressFromMatches(matches: readonly ResolvedMatch[]): TournamentProgress {
   const completed = matches.filter(({ status }) => status === "complete").length;
   const ready = matches.filter(({ status }) => status === "ready").length;
@@ -874,6 +1163,138 @@ export function applyPlayerDrop(
   );
 }
 
+function currentBracketEntrantOrder(
+  state: TournamentState,
+  stage: BracketEntrantStage,
+): BracketEntrantOrder | null {
+  const evaluation = evaluateTournament(state);
+  const order = BRACKET_ENTRANT_SLOTS[stage].map(
+    ({ matchId, slot }) =>
+      evaluation.matchesById.get(matchId)?.participants[slot]?.id ?? null,
+  );
+
+  if (
+    order.some((playerId) => playerId === null) ||
+    new Set(order).size !== 4
+  ) {
+    return null;
+  }
+
+  return order as BracketEntrantOrder;
+}
+
+export function canShuffleBracketEntrants(
+  state: TournamentState,
+  stage: BracketEntrantStage,
+): boolean {
+  return currentBracketEntrantOrder(state, stage) !== null;
+}
+
+export function getBracketSwapTargets(
+  state: TournamentState,
+  fromMatchId: string,
+  fromSlot: 0 | 1,
+): BracketEntrantSlot[] {
+  const source = getBracketEntrantSlotInfo(fromMatchId, fromSlot);
+  if (!source || !currentBracketEntrantOrder(state, source.stage)) {
+    return [];
+  }
+
+  return BRACKET_ENTRANT_SLOTS[source.stage]
+    .filter(({ matchId }) => matchId !== fromMatchId)
+    .map((slot) => ({ ...slot }));
+}
+
+function dependentMatchIds(rootMatchIds: readonly string[]): Set<string> {
+  const affected = new Set(rootMatchIds);
+  const queue = [...rootMatchIds];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const destination of MATCH_DESTINATIONS) {
+      if (
+        destination.fromMatchId === current &&
+        !affected.has(destination.toMatchId)
+      ) {
+        affected.add(destination.toMatchId);
+        queue.push(destination.toMatchId);
+      }
+    }
+  }
+
+  return affected;
+}
+
+export function swapBracketEntrants(
+  state: TournamentState,
+  fromMatchId: string,
+  fromSlot: 0 | 1,
+  toMatchId: string,
+  toSlot: 0 | 1,
+  updatedAt = new Date().toISOString(),
+): TournamentState {
+  const source = getBracketEntrantSlotInfo(fromMatchId, fromSlot);
+  const target = getBracketEntrantSlotInfo(toMatchId, toSlot);
+  if (
+    !source ||
+    !target ||
+    source.stage !== target.stage ||
+    source.matchId === target.matchId
+  ) {
+    throw new RangeError(
+      "Игроков можно менять только между соседними стартовыми матчами одного этапа",
+    );
+  }
+
+  const cleanState = sanitizeTournamentState(state);
+  const order = currentBracketEntrantOrder(cleanState, source.stage);
+  if (!order) {
+    throw new RangeError(
+      "Сначала определите всех четырёх участников этого этапа",
+    );
+  }
+
+  const nextOrder = [...order] as BracketEntrantOrder;
+  [nextOrder[source.index], nextOrder[target.index]] = [
+    nextOrder[target.index],
+    nextOrder[source.index],
+  ];
+
+  const affected = dependentMatchIds([
+    source.matchId,
+    target.matchId,
+  ]);
+  const winners = Object.fromEntries(
+    Object.entries(cleanState.winners).filter(
+      ([matchId]) => !affected.has(matchId),
+    ),
+  );
+  const matchSettings = Object.fromEntries(
+    Object.entries(cleanState.matchSettings).map(([matchId, settings]) => {
+      if (!affected.has(matchId) || settings.ctPlayerId === undefined) {
+        return [matchId, settings];
+      }
+
+      const { ctPlayerId: _removedCtPlayer, ...remainingSettings } = settings;
+      return [matchId, remainingSettings];
+    }),
+  );
+
+  return sanitizeTournamentState(
+    {
+      ...cleanState,
+      bracketEntrants: {
+        ...cleanState.bracketEntrants,
+        [source.stage]: nextOrder,
+      },
+      winners,
+      matchSettings,
+      updatedAt,
+    },
+    updatedAt,
+  );
+}
+
 export function resolveTournament(
   state: TournamentState,
 ): TournamentSnapshot {
@@ -882,6 +1303,7 @@ export function resolveTournament(
     ...state,
     winners: evaluation.winners,
     matchSettings: sanitizeMatchSettingsFromEvaluation(state, evaluation),
+    bracketEntrants: sanitizeBracketEntrantsFromEvaluation(state, evaluation),
   };
 
   return {
@@ -894,6 +1316,7 @@ export function resolveTournament(
       D: getGroupStandings(sanitizedState, "D"),
     },
     placements: getPlacements(sanitizedState),
+    placementBands: getPlacementBands(sanitizedState),
     progress: progressFromMatches(evaluation.matches),
   };
 }

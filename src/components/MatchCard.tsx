@@ -1,6 +1,11 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import type { CSSProperties } from "react";
-import { getMatch, TOURNAMENT_MAPS } from "../lib/bracket";
+import { useCallback, type CSSProperties } from "react";
+import {
+  getBracketEntrantDropId,
+  getMatch,
+  isBracketEntrantSlot,
+  TOURNAMENT_MAPS,
+} from "../lib/bracket";
 import type {
   MatchSettings,
   ParticipantSource,
@@ -18,6 +23,8 @@ interface MatchCardProps {
   validDropTarget?: boolean;
   isFinal?: boolean;
   compact?: boolean;
+  shuffleMode?: boolean;
+  validShuffleDropIds?: ReadonlySet<string>;
   onChooseWinner: (matchId: string, playerId: string) => void;
   onSetMap: (matchId: string, map: TournamentMap | null) => void;
   onSetCtPlayer: (matchId: string, playerId: string | null) => void;
@@ -32,6 +39,8 @@ interface PlayerLineProps {
   compact: boolean;
   ctPlayerId?: string;
   settingsPending: boolean;
+  shuffleMode: boolean;
+  validShuffleDropIds: ReadonlySet<string>;
   onChooseWinner: (matchId: string, playerId: string) => void;
   onSetCtPlayer: (matchId: string, playerId: string | null) => void;
 }
@@ -55,17 +64,24 @@ function PlayerLine({
   compact,
   ctPlayerId,
   settingsPending,
+  shuffleMode,
+  validShuffleDropIds,
   onChooseWinner,
   onSetCtPlayer,
 }: PlayerLineProps) {
+  const isShuffleSlot = isBracketEntrantSlot(match.id, slot);
   const draggable = Boolean(
-    isAdmin && player && match.status !== "locked" && !settingsPending,
+    isAdmin &&
+      player &&
+      match.status !== "locked" &&
+      !settingsPending &&
+      (!shuffleMode || isShuffleSlot),
   );
   const dragId = `${match.id}::${slot}::${player?.id ?? "empty"}`;
   const {
     attributes,
     listeners,
-    setNodeRef,
+    setNodeRef: setDraggableNodeRef,
     transform,
     isDragging,
   } = useDraggable({
@@ -75,10 +91,30 @@ function PlayerLine({
       ? {
           playerId: player.id,
           fromMatchId: match.id,
+          fromSlot: slot,
           playerName: player.name,
+          dragMode: shuffleMode ? "shuffle" : "advance",
         }
       : undefined,
   });
+  const shuffleDropId = getBracketEntrantDropId(match.id, slot);
+  const validShuffleDropTarget =
+    shuffleMode && validShuffleDropIds.has(shuffleDropId);
+  const {
+    setNodeRef: setShuffleDropNodeRef,
+    isOver: isShuffleDropOver,
+  } = useDroppable({
+    id: shuffleDropId,
+    disabled: !isAdmin || !shuffleMode || !isShuffleSlot,
+    data: { matchId: match.id, slot, kind: "shuffle" },
+  });
+  const setNodeRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setDraggableNodeRef(node);
+      setShuffleDropNodeRef(node);
+    },
+    [setDraggableNodeRef, setShuffleDropNodeRef],
+  );
 
   const style = transform
     ? ({
@@ -128,18 +164,27 @@ function PlayerLine({
         isLoser ? "is-loser" : "",
         draggable ? "is-draggable" : "",
         isDragging ? "is-dragging" : "",
+        validShuffleDropTarget ? "is-shuffle-drop-target" : "",
+        validShuffleDropTarget && isShuffleDropOver
+          ? "is-shuffle-drop-over"
+          : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       {player ? (
         <>
-          {isAdmin ? (
+          {isAdmin && (!shuffleMode || isShuffleSlot) ? (
             <button
               type="button"
               className="drag-handle"
               aria-label={`Перетащить ${player.name}`}
-              title="Перетащить в следующий матч"
+              title={
+                shuffleMode
+                  ? "Перетащить на игрока соседнего матча"
+                  : "Продвинуть или переместить игрока"
+              }
+              disabled={!draggable}
               {...attributes}
               {...listeners}
             >
@@ -163,7 +208,9 @@ function PlayerLine({
                     : "match-side-select--unset",
                 ].join(" ")}
                 value={startingSide}
-                disabled={!bothPlayersReady || settingsPending}
+                disabled={
+                  !bothPlayersReady || settingsPending || shuffleMode
+                }
                 onChange={(event) =>
                   setStartingSide(event.target.value as "" | "CT" | "T")
                 }
@@ -210,7 +257,7 @@ function PlayerLine({
                   .filter(Boolean)
                   .join(" ")}
                 onClick={() => onChooseWinner(match.id, player.id)}
-                disabled={isWinner || settingsPending}
+                disabled={isWinner || settingsPending || shuffleMode}
                 aria-label={
                   isWinner
                     ? `${player.name} уже выбран победителем`
@@ -230,6 +277,11 @@ function PlayerLine({
               </span>
             )}
           </span>
+          {validShuffleDropTarget ? (
+            <span className="shuffle-drop-callout" aria-hidden="true">
+              {isShuffleDropOver ? "Поменяем" : "Поменять"}
+            </span>
+          ) : null}
         </>
       ) : (
         <>
@@ -250,13 +302,15 @@ export default function MatchCard({
   validDropTarget = false,
   isFinal = false,
   compact = false,
+  shuffleMode = false,
+  validShuffleDropIds = new Set<string>(),
   onChooseWinner,
   onSetMap,
   onSetCtPlayer,
 }: MatchCardProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: match.id,
-    disabled: !isAdmin || settingsPending,
+    disabled: !isAdmin || settingsPending || shuffleMode,
     data: { matchId: match.id },
   });
   const shortLabel = match.label.split(" · ").at(-1) ?? match.label;
@@ -324,6 +378,8 @@ export default function MatchCard({
         compact={compact}
         ctPlayerId={settings.ctPlayerId}
         settingsPending={settingsPending}
+        shuffleMode={shuffleMode}
+        validShuffleDropIds={validShuffleDropIds}
         onChooseWinner={onChooseWinner}
         onSetCtPlayer={onSetCtPlayer}
       />
@@ -336,6 +392,8 @@ export default function MatchCard({
         compact={compact}
         ctPlayerId={settings.ctPlayerId}
         settingsPending={settingsPending}
+        shuffleMode={shuffleMode}
+        validShuffleDropIds={validShuffleDropIds}
         onChooseWinner={onChooseWinner}
         onSetCtPlayer={onSetCtPlayer}
       />
