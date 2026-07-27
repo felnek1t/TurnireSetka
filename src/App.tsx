@@ -606,11 +606,20 @@ export default function App() {
       }
 
       if (data.dragMode === "shuffle") {
-        if (!validDropIds.has(targetId)) {
-          return;
-        }
         const target = parseBracketEntrantDropId(targetId);
         if (!target) {
+          return;
+        }
+        const targetIsAllowed = getBracketSwapTargets(
+          dashboard.state,
+          data.fromMatchId,
+          data.fromSlot,
+        ).some(
+          (candidate) =>
+            candidate.matchId === target.matchId &&
+            candidate.slot === target.slot,
+        );
+        if (!targetIsAllowed) {
           return;
         }
 
@@ -674,7 +683,9 @@ export default function App() {
         );
         await commitState(
           nextState,
-          `${data.playerName} и ${targetPlayer?.name ?? "игрок"} поменяны местами`,
+          targetPlayer
+            ? `${data.playerName} и ${targetPlayer.name} поменяны местами`
+            : `${data.playerName} перенесён в выбранный слот`,
         );
         return;
       }
@@ -710,7 +721,6 @@ export default function App() {
       commitState,
       dashboard,
       showToast,
-      validDropIds,
     ],
   );
 
@@ -1095,7 +1105,7 @@ export default function App() {
                       title={
                         canShuffleLastChance
                           ? "Поменять пары полуфиналов местами"
-                          : "Сначала определите вторые места всех групп"
+                          : "Сначала определите хотя бы одно второе место"
                       }
                       onClick={() =>
                         setShuffleStage((current) =>
@@ -1123,8 +1133,9 @@ export default function App() {
                   <GripIcon />
                   <span>
                     <strong>Перемешивание включено.</strong> Перетащи игрока
-                    прямо на игрока соседнего полуфинала — они поменяются
-                    местами.
+                    на конкретное место соседнего полуфинала. Если место
+                    пустое, его будущий игрок автоматически перейдёт в
+                    освободившийся слот.
                   </span>
                 </div>
               ) : null}
@@ -1174,7 +1185,7 @@ export default function App() {
                       title={
                         canShufflePlayoff
                           ? "Поменять пары четвертьфиналов местами"
-                          : "Сначала определите победителей всех групп"
+                          : "Сначала определите хотя бы одного победителя группы"
                       }
                       onClick={() =>
                         setShuffleStage((current) =>
@@ -1200,8 +1211,9 @@ export default function App() {
                   <GripIcon />
                   <span>
                     <strong>Перемешивание включено.</strong> Перетащи игрока
-                    прямо на игрока соседнего четвертьфинала — они поменяются
-                    местами.
+                    на конкретное место соседнего четвертьфинала. Если место
+                    пустое, его будущий игрок автоматически перейдёт в
+                    освободившийся слот.
                   </span>
                 </div>
               ) : null}

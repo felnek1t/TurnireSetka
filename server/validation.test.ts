@@ -81,7 +81,7 @@ describe("tournament state map veto validation", () => {
 });
 
 describe("tournament bracket entrant validation", () => {
-  it("accepts a unique permutation of the current qualifiers", () => {
+  it("migrates a legacy player-id order to stable group sources", () => {
     const state = {
       ...stateWithCompletedGroups(),
       bracketEntrants: {
@@ -90,30 +90,31 @@ describe("tournament bracket entrant validation", () => {
       },
     };
 
-    expect(validateTournamentState(state).bracketEntrants).toEqual(
-      state.bracketEntrants,
-    );
+    expect(validateTournamentState(state).bracketEntrants).toEqual({
+      "last-chance": ["C", "B", "A", "D"],
+      playoff: ["D", "B", "C", "A"],
+    });
   });
 
   it.each([
     {
-      label: "duplicate player",
+      label: "duplicate source",
       entrants: {
-        "last-chance": ["dima", "n2ke", "shpion", "shpion"],
+        "last-chance": ["A", "B", "C", "C"],
       },
     },
     {
       label: "wrong length",
-      entrants: { playoff: ["doshik", "anemoia"] },
+      entrants: { playoff: ["A", "B"] },
     },
     {
       label: "unknown stage",
-      entrants: { group: ["doshik", "anemoia", "maclay", "morty"] },
+      entrants: { group: ["A", "B", "C", "D"] },
     },
     {
-      label: "non-qualifier",
+      label: "unknown source",
       entrants: {
-        "last-chance": ["doshik", "n2ke", "shpion", "zmeuga"],
+        "last-chance": ["A", "B", "C", "E"],
       },
     },
   ])("rejects $label", ({ entrants }) => {
@@ -125,14 +126,14 @@ describe("tournament bracket entrant validation", () => {
     ).toThrow(ValidationError);
   });
 
-  it("rejects an order before all qualifiers are known", () => {
-    expect(() =>
-      validateTournamentState({
-        ...createDefaultState(),
-        bracketEntrants: {
-          playoff: ["doshik", "anemoia", "maclay", "morty"],
-        },
-      }),
-    ).toThrow(ValidationError);
+  it("accepts a source order before all qualifiers are known", () => {
+    const state = validateTournamentState({
+      ...createDefaultState(),
+      bracketEntrants: {
+        playoff: ["C", "B", "A", "D"],
+      },
+    });
+
+    expect(state.bracketEntrants.playoff).toEqual(["C", "B", "A", "D"]);
   });
 });

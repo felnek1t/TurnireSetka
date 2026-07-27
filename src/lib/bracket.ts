@@ -332,6 +332,13 @@ const matchDefinitionsById = new Map(
   MATCH_DEFINITIONS.map((definition) => [definition.id, definition]),
 );
 
+const DEFAULT_BRACKET_ENTRANT_ORDER: BracketEntrantOrder = [
+  "A",
+  "B",
+  "C",
+  "D",
+];
+
 interface BracketEntrantSlotInfo extends BracketEntrantSlot {
   index: number;
 }
@@ -385,71 +392,60 @@ function sourcePlayerFromEvaluation(
     : sourceMatch?.loser ?? null;
 }
 
-function defaultBracketEntrants(
-  stage: BracketEntrantStage,
-  playersById: Map<string, Player>,
-  matchesById: Map<string, ResolvedMatch>,
-): [Player | null, Player | null, Player | null, Player | null] {
-  return BRACKET_ENTRANT_SLOTS[stage].map(({ matchId, slot }) => {
-    const definition = matchDefinitionsById.get(matchId);
-    return definition
-      ? sourcePlayerFromEvaluation(
-          definition.sources[slot],
-          playersById,
-          matchesById,
-        )
-      : null;
-  }) as [Player | null, Player | null, Player | null, Player | null];
-}
-
 function validBracketEntrantOrder(
   value: unknown,
-  defaultPlayers: readonly (Player | null)[],
+  playersById: ReadonlyMap<string, Player>,
 ): BracketEntrantOrder | null {
   if (
     !Array.isArray(value) ||
     value.length !== 4 ||
-    !value.every((playerId) => typeof playerId === "string") ||
-    defaultPlayers.some((player) => player === null)
+    !value.every((entry) => typeof entry === "string")
   ) {
     return null;
   }
 
-  const order = value as string[];
-  const uniqueOrder = new Set(order);
-  const defaultIds = defaultPlayers.map((player) => player!.id);
+  const rawOrder = value as string[];
+  const groupOrder = rawOrder.every((entry) =>
+    GROUP_IDS.includes(entry as GroupId),
+  )
+    ? (rawOrder as GroupId[])
+    : rawOrder.map((playerId) => playersById.get(playerId)?.group ?? null);
+
   if (
-    uniqueOrder.size !== 4 ||
-    defaultIds.some((playerId) => !uniqueOrder.has(playerId))
+    groupOrder.some((group) => group === null) ||
+    new Set(groupOrder).size !== 4 ||
+    GROUP_IDS.some((group) => !groupOrder.includes(group))
   ) {
     return null;
   }
 
-  return [...order] as BracketEntrantOrder;
+  return [...groupOrder] as BracketEntrantOrder;
 }
 
-function resolvedBracketEntrants(
+function currentBracketEntrantOrder(
   state: TournamentState,
   stage: BracketEntrantStage,
-  playersById: Map<string, Player>,
-  matchesById: Map<string, ResolvedMatch>,
-): [Player | null, Player | null, Player | null, Player | null] {
-  const defaults = defaultBracketEntrants(stage, playersById, matchesById);
-  const order = validBracketEntrantOrder(
-    state.bracketEntrants?.[stage],
-    defaults,
+  playersById = new Map(
+    state.players.map((player) => [player.id, player] as const),
+  ),
+): BracketEntrantOrder {
+  return (
+    validBracketEntrantOrder(state.bracketEntrants?.[stage], playersById) ??
+    [...DEFAULT_BRACKET_ENTRANT_ORDER]
   );
+}
 
-  if (!order) {
-    return defaults;
+function entrantSourceForGroup(
+  stage: BracketEntrantStage,
+  group: GroupId,
+): ParticipantSource {
+  const originalSlot =
+    BRACKET_ENTRANT_SLOTS[stage][GROUP_IDS.indexOf(group)];
+  const definition = matchDefinitionsById.get(originalSlot.matchId);
+  if (!definition) {
+    throw new RangeError(`Unknown entrant source: ${stage}/${group}`);
   }
-
-  return order.map((playerId) => playersById.get(playerId) ?? null) as [
-    Player | null,
-    Player | null,
-    Player | null,
-    Player | null,
-  ];
+  return definition.sources[originalSlot.slot];
 }
 
 /**
@@ -464,12 +460,16 @@ function evaluateTournament(state: TournamentState): Evaluation {
   const matches: ResolvedMatch[] = [];
   const matchesById = new Map<string, ResolvedMatch>();
   const sanitizedWinners: Record<string, string> = {};
-  const entrantPlayersByStage = new Map<
+  const entrantOrdersByStage = new Map<
     BracketEntrantStage,
-    [Player | null, Player | null, Player | null, Player | null]
+    BracketEntrantOrder
   >();
 
   for (const definition of MATCH_DEFINITIONS) {
+    const effectiveSources = [...definition.sources] as [
+      ParticipantSource,
+      ParticipantSource,
+    ];
     const participants = definition.sources.map((source, slot) => {
       const entrantSlot = getBracketEntrantSlotInfo(
         definition.id,
@@ -479,17 +479,25 @@ function evaluateTournament(state: TournamentState): Evaluation {
         return sourcePlayerFromEvaluation(source, playersById, matchesById);
       }
 
-      let entrants = entrantPlayersByStage.get(entrantSlot.stage);
-      if (!entrants) {
-        entrants = resolvedBracketEntrants(
+      let order = entrantOrdersByStage.get(entrantSlot.stage);
+      if (!order) {
+        order = currentBracketEntrantOrder(
           state,
           entrantSlot.stage,
           playersById,
-          matchesById,
         );
-        entrantPlayersByStage.set(entrantSlot.stage, entrants);
+        entrantOrdersByStage.set(entrantSlot.stage, order);
       }
-      return entrants[entrantSlot.index];
+      const effectiveSource = entrantSourceForGroup(
+        entrantSlot.stage,
+        order[entrantSlot.index],
+      );
+      effectiveSources[slot as 0 | 1] = effectiveSource;
+      return sourcePlayerFromEvaluation(
+        effectiveSource,
+        playersById,
+        matchesById,
+      );
     }) as [Player | null, Player | null];
 
     const hasValidPair =
@@ -517,6 +525,7 @@ function evaluateTournament(state: TournamentState): Evaluation {
 
     const resolvedMatch: ResolvedMatch = {
       ...definition,
+      sources: effectiveSources,
       participants,
       winnerId: winnerPlayer?.id ?? null,
       loserId: loserPlayer?.id ?? null,
@@ -626,10 +635,7 @@ function sanitizeMatchSettingsFromEvaluation(
   return sanitizedSettings;
 }
 
-function sanitizeBracketEntrantsFromEvaluation(
-  state: TournamentState,
-  evaluation: Evaluation,
-): BracketEntrants {
+function sanitizeBracketEntrants(state: TournamentState): BracketEntrants {
   const sanitized: BracketEntrants = {};
   const playersById = new Map(
     state.players.map((player) => [player.id, player] as const),
@@ -638,14 +644,9 @@ function sanitizeBracketEntrantsFromEvaluation(
   for (const stage of Object.keys(
     BRACKET_ENTRANT_SLOTS,
   ) as BracketEntrantStage[]) {
-    const defaults = defaultBracketEntrants(
-      stage,
-      playersById,
-      evaluation.matchesById,
-    );
     const order = validBracketEntrantOrder(
       state.bracketEntrants?.[stage],
-      defaults,
+      playersById,
     );
     if (order) {
       sanitized[stage] = order;
@@ -679,7 +680,7 @@ export function sanitizeTournamentState(
     ...state,
     winners: evaluation.winners,
     matchSettings: sanitizeMatchSettingsFromEvaluation(state, evaluation),
-    bracketEntrants: sanitizeBracketEntrantsFromEvaluation(state, evaluation),
+    bracketEntrants: sanitizeBracketEntrants(state),
     updatedAt,
   };
 }
@@ -1039,8 +1040,10 @@ export function getTournamentStatus(
   return getTournamentProgress(state).status;
 }
 
-export const MATCH_DESTINATIONS: readonly MatchDestination[] =
-  MATCH_DEFINITIONS.flatMap((definition) =>
+function buildMatchDestinations(
+  matches: readonly Pick<MatchDefinition, "id" | "sources">[],
+): MatchDestination[] {
+  return matches.flatMap((definition) =>
     definition.sources.flatMap((source, slot) => {
       if (source.type === "seed") {
         return [];
@@ -1056,6 +1059,10 @@ export const MATCH_DESTINATIONS: readonly MatchDestination[] =
       ];
     }),
   );
+}
+
+export const MATCH_DESTINATIONS: readonly MatchDestination[] =
+  buildMatchDestinations(MATCH_DEFINITIONS);
 
 export function getMatchDestinations(matchId: string): MatchDestination[] {
   return MATCH_DESTINATIONS.filter(
@@ -1107,8 +1114,9 @@ export function getPlayerDropTargets(
   }
 
   const evaluation = evaluateTournament(state);
+  const destinations = buildMatchDestinations(evaluation.matches);
 
-  return MATCH_DESTINATIONS.filter(
+  return destinations.filter(
     (destination) =>
       fromMatchId === undefined || destination.fromMatchId === fromMatchId,
   )
@@ -1163,31 +1171,15 @@ export function applyPlayerDrop(
   );
 }
 
-function currentBracketEntrantOrder(
-  state: TournamentState,
-  stage: BracketEntrantStage,
-): BracketEntrantOrder | null {
-  const evaluation = evaluateTournament(state);
-  const order = BRACKET_ENTRANT_SLOTS[stage].map(
-    ({ matchId, slot }) =>
-      evaluation.matchesById.get(matchId)?.participants[slot]?.id ?? null,
-  );
-
-  if (
-    order.some((playerId) => playerId === null) ||
-    new Set(order).size !== 4
-  ) {
-    return null;
-  }
-
-  return order as BracketEntrantOrder;
-}
-
 export function canShuffleBracketEntrants(
   state: TournamentState,
   stage: BracketEntrantStage,
 ): boolean {
-  return currentBracketEntrantOrder(state, stage) !== null;
+  const evaluation = evaluateTournament(state);
+  return BRACKET_ENTRANT_SLOTS[stage].some(
+    ({ matchId, slot }) =>
+      evaluation.matchesById.get(matchId)?.participants[slot] !== null,
+  );
 }
 
 export function getBracketSwapTargets(
@@ -1196,7 +1188,14 @@ export function getBracketSwapTargets(
   fromSlot: 0 | 1,
 ): BracketEntrantSlot[] {
   const source = getBracketEntrantSlotInfo(fromMatchId, fromSlot);
-  if (!source || !currentBracketEntrantOrder(state, source.stage)) {
+  if (!source) {
+    return [];
+  }
+
+  const evaluation = evaluateTournament(state);
+  if (
+    !evaluation.matchesById.get(fromMatchId)?.participants[fromSlot]
+  ) {
     return [];
   }
 
@@ -1248,9 +1247,10 @@ export function swapBracketEntrants(
 
   const cleanState = sanitizeTournamentState(state);
   const order = currentBracketEntrantOrder(cleanState, source.stage);
-  if (!order) {
+  const evaluation = evaluateTournament(cleanState);
+  if (!evaluation.matchesById.get(fromMatchId)?.participants[fromSlot]) {
     throw new RangeError(
-      "Сначала определите всех четырёх участников этого этапа",
+      "Исходный слот пока не содержит игрока",
     );
   }
 
@@ -1303,7 +1303,7 @@ export function resolveTournament(
     ...state,
     winners: evaluation.winners,
     matchSettings: sanitizeMatchSettingsFromEvaluation(state, evaluation),
-    bracketEntrants: sanitizeBracketEntrantsFromEvaluation(state, evaluation),
+    bracketEntrants: sanitizeBracketEntrants(state),
   };
 
   return {

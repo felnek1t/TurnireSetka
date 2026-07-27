@@ -23,7 +23,13 @@ export interface MapVetoEntry {
 }
 
 export type BracketEntrantStage = "last-chance" | "playoff";
-export type BracketEntrantOrder = [string, string, string, string];
+/**
+ * The four values are stable group sources, not player ids. This lets an
+ * organizer move a known qualifier into a slot whose original group has not
+ * finished yet. When that group later produces its qualifier, the player
+ * automatically appears in the slot that now owns the group source.
+ */
+export type BracketEntrantOrder = [GroupId, GroupId, GroupId, GroupId];
 export type BracketEntrants = Partial<
   Record<BracketEntrantStage, BracketEntrantOrder>
 >;
@@ -37,7 +43,7 @@ export interface MatchSettings {
  * Persisted tournament data.
  *
  * Explicit winner choices, organizer-defined match settings and optional
- * four-player entry orders are stored. Later-round participants, standings and
+ * four-source entry orders are stored. Later-round participants, standings and
  * placements are derived, so stale bracket data cannot be persisted
  * accidentally.
  */

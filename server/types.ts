@@ -12,7 +12,7 @@ export type GroupId = (typeof GROUP_IDS)[number];
 export type TournamentMap = (typeof TOURNAMENT_MAPS)[number];
 export type MapVetoKind = "ban" | "pick";
 export type BracketEntrantStage = "last-chance" | "playoff";
-export type BracketEntrantOrder = [string, string, string, string];
+export type BracketEntrantOrder = [GroupId, GroupId, GroupId, GroupId];
 export type BracketEntrants = Partial<
   Record<BracketEntrantStage, BracketEntrantOrder>
 >;

@@ -1,6 +1,7 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { useCallback, type CSSProperties } from "react";
 import {
+  GROUP_MATCH_IDS,
   getBracketEntrantDropId,
   getMatch,
   isBracketEntrantSlot,
@@ -51,6 +52,16 @@ function sourcePlaceholder(source: ParticipantSource): string {
   }
 
   const sourceMatch = getMatch(source.matchId);
+  if (source.type === "winner" && sourceMatch?.group) {
+    const groupMatchIds = GROUP_MATCH_IDS[sourceMatch.group];
+    if (source.matchId === groupMatchIds.winners) {
+      return `1-е место группы ${sourceMatch.group}`;
+    }
+    if (source.matchId === groupMatchIds.decider) {
+      return `2-е место группы ${sourceMatch.group}`;
+    }
+  }
+
   const name = sourceMatch?.label.split(" · ").at(-1) ?? "предыдущего матча";
   return `${source.type === "winner" ? "Победитель" : "Проигравший"}: ${name}`;
 }
@@ -73,9 +84,8 @@ function PlayerLine({
   const draggable = Boolean(
     isAdmin &&
       player &&
-      match.status !== "locked" &&
       !settingsPending &&
-      (!shuffleMode || isShuffleSlot),
+      (shuffleMode ? isShuffleSlot : match.status !== "locked"),
   );
   const dragId = `${match.id}::${slot}::${player?.id ?? "empty"}`;
   const {
@@ -105,7 +115,11 @@ function PlayerLine({
     isOver: isShuffleDropOver,
   } = useDroppable({
     id: shuffleDropId,
-    disabled: !isAdmin || !shuffleMode || !isShuffleSlot,
+    disabled:
+      !isAdmin ||
+      !shuffleMode ||
+      !isShuffleSlot ||
+      !validShuffleDropTarget,
     data: { matchId: match.id, slot, kind: "shuffle" },
   });
   const setNodeRef = useCallback(
@@ -181,7 +195,7 @@ function PlayerLine({
               aria-label={`Перетащить ${player.name}`}
               title={
                 shuffleMode
-                  ? "Перетащить на игрока соседнего матча"
+                  ? "Перетащить на игрока или пустой слот соседнего матча"
                   : "Продвинуть или переместить игрока"
               }
               disabled={!draggable}
@@ -277,11 +291,6 @@ function PlayerLine({
               </span>
             )}
           </span>
-          {validShuffleDropTarget ? (
-            <span className="shuffle-drop-callout" aria-hidden="true">
-              {isShuffleDropOver ? "Поменяем" : "Поменять"}
-            </span>
-          ) : null}
         </>
       ) : (
         <>
@@ -290,6 +299,17 @@ function PlayerLine({
           <span className="result-mark">·</span>
         </>
       )}
+      {validShuffleDropTarget ? (
+        <span className="shuffle-drop-callout" aria-hidden="true">
+          {player
+            ? isShuffleDropOver
+              ? "Поменяем"
+              : "Поменять"
+            : isShuffleDropOver
+              ? "Перенесём"
+              : "Свободный слот"}
+        </span>
+      ) : null}
     </div>
   );
 }

@@ -367,30 +367,42 @@ export function validateTournamentState(value: unknown): TournamentState {
       const rawOrder = value.bracketEntrants[stage];
       const path = `bracketEntrants.${stage}`;
       if (!Array.isArray(rawOrder) || rawOrder.length !== 4) {
-        issues.push(`${path}: ожидается массив из четырёх игроков`);
+        issues.push(`${path}: ожидается порядок из четырёх групп`);
         continue;
       }
 
-      const order: string[] = [];
-      for (const [index, rawPlayerId] of rawOrder.entries()) {
-        if (typeof rawPlayerId !== "string") {
-          issues.push(`${path}[${index}]: id игрока должен быть строкой`);
+      const order: GroupId[] = [];
+      for (const [index, rawEntry] of rawOrder.entries()) {
+        if (typeof rawEntry !== "string") {
+          issues.push(`${path}[${index}]: группа должна быть строкой`);
           continue;
         }
 
-        const playerId = rawPlayerId.trim();
-        const player = playersByNormalizedId.get(
-          playerId.toLocaleLowerCase("en-US"),
-        );
-        if (!player) {
-          issues.push(`${path}[${index}]: игрок "${playerId}" не найден`);
+        const entry = rawEntry.trim();
+        if (GROUP_IDS.includes(entry as GroupId)) {
+          order.push(entry as GroupId);
           continue;
         }
-        order.push(player.id);
+
+        // Compatibility with the first shuffle implementation, which stored
+        // four player ids after all qualifiers were known. A player uniquely
+        // identifies the stable group source that should occupy this slot.
+        const player = playersByNormalizedId.get(
+          entry.toLocaleLowerCase("en-US"),
+        );
+        if (!player) {
+          issues.push(
+            `${path}[${index}]: группа или игрок "${entry}" не найдены`,
+          );
+          continue;
+        }
+        order.push(player.group);
       }
 
       if (order.length === 4 && new Set(order).size !== 4) {
-        issues.push(`${path}: игроки не должны повторяться`);
+        issues.push(
+          `${path}: группы A, B, C и D должны встречаться по одному разу`,
+        );
       }
 
       if (order.length === 4 && new Set(order).size === 4) {
@@ -445,10 +457,10 @@ export function validateTournamentState(value: unknown): TournamentState {
       if (
         !requested ||
         !sanitized ||
-        requested.some((playerId, index) => sanitized[index] !== playerId)
+        requested.some((group, index) => sanitized[index] !== group)
       ) {
         issues.push(
-          `bracketEntrants.${stage}: нужен полный набор текущих участников этапа`,
+          `bracketEntrants.${stage}: нужен полный порядок источников A, B, C и D`,
         );
       }
     }
